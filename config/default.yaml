@@ -1,0 +1,49 @@
+# Default configuration. Override per machine with config/local.yaml (gitignored)
+# or with QSD_<SECTION>__<KEY> environment variables. Secrets go in environment variables only.
+
+paths:
+  data_dir: data            # SQLite DB, caches, preserved originals
+  log_dir: logs
+  local_sources: []         # Read-only folders to scan, e.g. ["D:\\QuantResearch", "D:\\StrategyPapers"]
+
+asset_classes:
+  enabled: [STOCK, ETF, OPTIONS, FOREX, CRYPTO]
+
+ai:
+  default_provider: deepseek
+  cheap_model: deepseek-chat
+  strong_model: deepseek-reasoner
+  second_opinion_provider: null   # e.g. anthropic or openai; used only for high-value candidates
+
+budgets:                    # Hard caps; the pipeline stops a campaign when any is reached
+  max_ai_cost_usd_per_day: 1.0
+  max_ai_cost_usd_per_month: 20.0
+  max_ai_cost_usd_per_campaign: 2.0
+  max_ai_calls_per_campaign: 200
+  max_ai_tokens_per_campaign: 2000000
+  max_search_requests_per_campaign: 100
+  max_urls_per_campaign: 300
+  max_documents_per_campaign: 150
+  max_sources_per_domain: 25
+  max_runtime_minutes_per_campaign: 60
+  max_video_minutes_per_campaign: 0     # Phase 2
+  max_audio_minutes_per_campaign: 0     # Phase 2
+
+crawling:
+  user_agent: "QSD-Research-Bot/0.1 (+polite; respects robots.txt)"
+  respect_robots_txt: true
+  requests_per_minute_per_domain: 10
+  max_retries: 3
+  backoff_base_seconds: 2.0
+  request_timeout_seconds: 30
+  max_download_mb: 50
+
+exploration:                # Share of research effort (must sum to 1.0)
+  known_quality: 0.7
+  new_promising: 0.2
+  experimental: 0.1
+
+quality_gate:
+  high_priority: 85
+  promising: 70
+  research_further: 55

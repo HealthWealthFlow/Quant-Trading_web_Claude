@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+.env
+.env.*
+!.env.example
+# Runtime data (databases, caches, downloaded sources, logs)
+data/
+logs/
+*.sqlite
+*.db
+config/local.yaml
+*.whl
