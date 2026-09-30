@@ -172,6 +172,20 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_score(args: argparse.Namespace) -> int:
+    from .scoring import score_all, score_idea
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    results = [score_idea(engine, s, args.idea)] if args.idea else score_all(engine, s)
+    for r in results:
+        print(f"idea {r.idea_id:>5}  {r.status:<24} quality {r.idea_quality:5.1f} (coverage {r.coverage:.0%})  "
+              f"priority {r.priority:5.1f}  band {r.band}" + (f"  HARD FAIL: {', '.join(r.hard_fails)}"
+                                                               if r.hard_fails else ""))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="qsd", description="Quant Strategy Discovery & Source Intelligence")
     p.add_argument("--version", action="version", version=f"qsd {__version__}")
@@ -219,6 +233,10 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--force-deep", action="store_true", help="run stage B even if triage says not promising")
     ex.add_argument("--db", help="database path or SQLAlchemy URL")
     ex.set_defaults(func=_cmd_extract)
+    sco = sub.add_parser("score", help="score ideas deterministically and move them through the status pipeline")
+    sco.add_argument("--idea", type=int, help="score one idea (default: all)")
+    sco.add_argument("--db", help="database path or SQLAlchemy URL")
+    sco.set_defaults(func=_cmd_score)
     return p
 
 

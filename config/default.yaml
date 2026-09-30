@@ -64,3 +64,22 @@ discovery:
   contact_email: null       # e.g. you@example.com — OpenAlex/Crossref ask for this ("polite pool")
   results_per_query: 10
   search_memory_days: 30    # an identical (connector, query) search is not repeated within this window
+
+scoring:
+  # Idea quality weights (spec §52); must sum to 100.
+  idea_weights:
+    economic_rationale: 12
+    rule_quantifiability: 10
+    point_in_time: 8
+    data_availability: 8
+    liquidity: 10
+    exit_executability: 8
+    edge_vs_cost: 10
+    parameter_simplicity: 6
+    expected_robustness: 6
+    opportunity_frequency: 5
+    tail_risk: 5
+    capacity: 4
+    automation: 4
+    diversification: 4
+  min_coverage_for_gate: 0.6   # share of weight actually assessed before an idea may be archived/promoted

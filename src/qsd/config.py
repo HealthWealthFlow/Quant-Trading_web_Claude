@@ -116,6 +116,28 @@ class Discovery(BaseModel):
     search_memory_days: int = Field(30, ge=0)  # don't repeat an identical search within this window
 
 
+DEFAULT_IDEA_WEIGHTS = {
+    "economic_rationale": 12, "rule_quantifiability": 10, "point_in_time": 8, "data_availability": 8,
+    "liquidity": 10, "exit_executability": 8, "edge_vs_cost": 10, "parameter_simplicity": 6,
+    "expected_robustness": 6, "opportunity_frequency": 5, "tail_risk": 5, "capacity": 4,
+    "automation": 4, "diversification": 4,
+}
+
+
+class Scoring(BaseModel):
+    idea_weights: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_IDEA_WEIGHTS))  # spec §52
+    min_coverage_for_gate: float = Field(0.6, ge=0, le=1)  # below this, ideas are researched further, not archived
+
+    @model_validator(mode="after")
+    def _weights(self) -> Scoring:
+        unknown = set(self.idea_weights) - set(DEFAULT_IDEA_WEIGHTS)
+        if unknown:
+            raise ValueError(f"unknown idea weight keys: {sorted(unknown)}")
+        if abs(sum(self.idea_weights.values()) - 100) > 1e-6:
+            raise ValueError("idea_weights must sum to 100")
+        return self
+
+
 class Settings(BaseModel):
     paths: Paths = Field(default_factory=Paths)
     asset_classes: AssetClassConfig = Field(default_factory=AssetClassConfig)
@@ -125,6 +147,7 @@ class Settings(BaseModel):
     exploration: Exploration = Field(default_factory=Exploration)
     quality_gate: QualityGate = Field(default_factory=QualityGate)
     discovery: Discovery = Field(default_factory=Discovery)
+    scoring: Scoring = Field(default_factory=Scoring)
 
     def resolve_path(self, p: Path) -> Path:
         return p if p.is_absolute() else REPO_ROOT / p

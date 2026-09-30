@@ -1,5 +1,18 @@
 # Changelog
 
+## M6 — Scoring (2026-09-30)
+- `qsd.scoring` (deterministic, no AI): red-flag language (§54), hard fails (§53: martingale, unlimited averaging,
+  look-ahead, survivorship, scam signals, unquantifiable rules), formalization completeness (§48), parameter
+  complexity (§55), source quality (§25), evidence quality (§26), replication from independent roots only (§70/§72),
+  fingerprints + NEW/VARIANT/DUPLICATE (§69), novelty (§80), idea quality with configurable §52 weights, research
+  priority (§81, never uses claims), quality-gate bands (§126).
+- Components that can't be assessed are UNSCORED (not guessed); `coverage` recorded; ideas below the coverage
+  threshold go to RESEARCHING with the list of what to assess, instead of being archived.
+- Status pipeline with history; rejections recorded once and never deleted; regime-inferred-only flag and
+  diversification tags incl. REGIME:*.
+- Schema v2 (`ideas.score_details`) with an additive migration framework (v1 databases upgrade in place).
+- `qsd score`. 108 tests.
+
 ## M5 — AI layer (2026-09-30)
 - Provider adapters: DeepSeek (default) and OpenAI via their chat-completions HTTP APIs (JSON mode); Claude via the
   official `anthropic` SDK (optional extra) with `claude-opus-5-5` and server-side refusal fallback. Keys from env.

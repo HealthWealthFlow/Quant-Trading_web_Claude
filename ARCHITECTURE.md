@@ -26,10 +26,11 @@ src/qsd/config.py          typed settings; safety options that may not be disabl
 src/qsd/logging_setup.py   JSON-lines logs with secret redaction
 src/qsd/state.py           build-progress state (PROJECT_STATE.json)
 src/qsd/taxonomy.py        shared vocabularies (statuses, reasons, regimes, missing-value markers)
-src/qsd/db/                research DB: models.py (schema v1), engine/session helpers
+src/qsd/db/                research DB: models.py (schema v2, additive migrations), engine/session helpers
 src/qsd/handlers/          format detection + parsers (text, html, pdf, office, spreadsheet, epub, safe zip)
 src/qsd/security.py        prompt-injection detection, untrusted-content wrapper
 src/qsd/localscan.py       read-only local folder index
+src/qsd/scoring/           deterministic scores, hard fails, dedupe, status pipeline
 src/qsd/ai/                providers, gateway (cache/ledger/budgets), prompts, schemas, grounding, extraction
 src/qsd/discovery/         connectors (arXiv/OpenAlex/Crossref/RSS), query families, tiers, budgets, runner
 src/qsd/fetch/             polite fetcher: urls, robots, rate limits, access-barrier policy, cache, fetch→parse→store
@@ -39,7 +40,7 @@ docs/MASTER_SPEC.md        full requirements (§ references)
 ```
 
 Planned packages:
-`qsd.scoring` (M6), `qsd.packaging` (M7), `qsd.web` (M8), `qsd.campaign` (M9).
+`qsd.packaging` (M7), `qsd.web` (M8), `qsd.campaign` (M9).
 
 ## Key technology choices
 See `DECISIONS.md`.

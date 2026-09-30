@@ -51,11 +51,31 @@ def test_init_creates_all_tables_and_version(engine):
     assert init_db(engine) == SCHEMA_VERSION  # idempotent
 
 
-def test_schema_version_mismatch_refused(engine):
+def test_newer_schema_refused(engine):
     with session_scope(engine) as s:
         s.get(SchemaMeta, "schema_version").value = "999"
     with pytest.raises(SchemaVersionError):
         init_db(engine)
+
+
+def test_v1_database_migrates_without_data_loss(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.sqlite"
+    eng = make_engine(path)
+    init_db(eng)
+    with session_scope(eng) as s:
+        s.add(new_idea(strategy_name="kept"))
+    con = sqlite3.connect(path)  # simulate a v1 database: drop the v2 column, set version 1
+    con.execute("ALTER TABLE ideas DROP COLUMN score_details")
+    con.execute("UPDATE schema_meta SET value='1' WHERE key='schema_version'")
+    con.commit()
+    con.close()
+    eng2 = make_engine(path)
+    assert init_db(eng2) == SCHEMA_VERSION
+    with session_scope(eng2) as s:
+        idea = s.scalars(select(Idea)).one()
+        assert idea.strategy_name == "kept" and idea.score_details == {}
 
 
 def test_idea_defaults_are_unknown_not_guessed(engine):

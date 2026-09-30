@@ -2,16 +2,13 @@
 
 Milestone status lives in `PROJECT_STATE.json` (run `python -m qsd.cli status`). This file holds finer tasks.
 
-## M6 — Scoring (next) — deterministic, no AI
-- [ ] Source quality score 0–100 from tier + transparency signals (citations, code, method), marketing/red-flag
-      penalties (spec §25); evidence quality score (§26) from sample/OOS/cost/replication signals present
-- [ ] Red-flag language detector (§54) incl. martingale/doubling; hard-fail rules (§53) → Rejection rows
-- [ ] Formalization completeness (§48) from known vs UNKNOWN rule fields; parameter complexity (§55)
-- [ ] Idea quality score (§52) with configurable weights; unknown components score 0 and are listed, never guessed
-- [ ] Strategy fingerprint + NEW/VARIANT/DUPLICATE (§69); root evidence id (§70); novelty (§80)
-- [ ] Research priority score (§81) and quality gate bands (§126); status transitions with history
-- [ ] Regime: flag ideas whose regimes are only RATIONALE_INFERRED; diversification tags incl. regime coverage
-- [ ] `qsd score` command; tests for each rule
+## M7 — Research package + backtest queue (next)
+- [ ] Package builder (spec §122): JSON with provenance, original/supporting/contradicting sources, hypothesis,
+      known + unknown rules, regimes (§137), data & point-in-time requirements, concerns, scores + coverage
+- [ ] Mandatory downstream warning (§124) and CLAIMED_* section clearly separated
+- [ ] Handoff rule (§123): no hard fail, completeness threshold, provenance known, quality above threshold
+- [ ] `backtest_queue` (table or JSONL folder) + status SUBMITTED_TO_BACKTEST; never any broker/live path (§125)
+- [ ] JSON schema file for the package so the Quant Auto OS can validate it; `qsd package` / `qsd queue`
 
 ## Later milestones — market-regime grouping (§137)
 - [ ] M5: extraction prompt returns regime suitability + basis + confidence; UNKNOWN by default

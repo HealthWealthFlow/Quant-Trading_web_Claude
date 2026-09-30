@@ -18,4 +18,4 @@ def test_db_init_and_info(tmp_path, capsys):
     assert main(["db", "--db", db, "init"]) == 0
     assert main(["db", "--db", db, "info"]) == 0
     out = capsys.readouterr().out
-    assert "schema v1" in out and "ideas" in out
+    assert "schema v2" in out and "ideas" in out

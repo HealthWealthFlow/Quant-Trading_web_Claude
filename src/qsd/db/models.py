@@ -45,7 +45,7 @@ from ..taxonomy import (
     TimeHorizon,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_QUOTE_CHARS = 300  # copyright: short necessary quotations only (spec §108)
 
 
@@ -242,6 +242,8 @@ class Idea(Base):
     status: Mapped[IdeaStatus] = mapped_column(_enum(IdeaStatus), default=IdeaStatus.DISCOVERED, index=True)
     hard_fail_reasons: Mapped[list] = mapped_column(default=list)
     next_research_action: Mapped[str] = _unknown_text()
+    # v2: per-component score breakdown, coverage and bases (spec §52, §81); written only by qsd.scoring
+    score_details: Mapped[dict] = mapped_column(default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

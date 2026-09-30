@@ -35,18 +35,40 @@ def make_engine(url_or_path: str | Path) -> Engine:
     return engine
 
 
+# Forward-only, additive migrations: version N -> N+1. Never drop or rewrite research data.
+MIGRATIONS: dict[int, list[str]] = {
+    1: ["ALTER TABLE ideas ADD COLUMN score_details JSON NOT NULL DEFAULT '{}'"],
+}
+
+
+def _migrate(engine: Engine, from_version: int) -> int:
+    version = from_version
+    while version < SCHEMA_VERSION:
+        steps = MIGRATIONS.get(version)
+        if steps is None:
+            raise SchemaVersionError(f"no migration from schema v{version}")
+        with engine.begin() as conn:
+            for sql in steps:
+                conn.exec_driver_sql(sql)
+            conn.exec_driver_sql("UPDATE schema_meta SET value = ? WHERE key = 'schema_version'", (str(version + 1),))
+        version += 1
+    return version
+
+
 def init_db(engine: Engine) -> int:
-    """Create missing tables and record the schema version. Refuses to run against a different version."""
+    """Create missing tables, apply pending additive migrations, and record the schema version."""
+    with Session(engine) as s:
+        existing = inspect(engine).has_table("schema_meta") and s.get(SchemaMeta, "schema_version")
+        current = int(existing.value) if existing else None
+    if current is not None and current > SCHEMA_VERSION:
+        raise SchemaVersionError(f"database schema v{current} is newer than code schema v{SCHEMA_VERSION}")
+    if current is not None and current < SCHEMA_VERSION:
+        _migrate(engine, current)
     Base.metadata.create_all(engine)
     with Session(engine) as s:
-        row = s.get(SchemaMeta, "schema_version")
-        if row is None:
+        if s.get(SchemaMeta, "schema_version") is None:
             s.add(SchemaMeta(key="schema_version", value=str(SCHEMA_VERSION)))
             s.commit()
-        elif int(row.value) != SCHEMA_VERSION:
-            raise SchemaVersionError(
-                f"database schema v{row.value} != code schema v{SCHEMA_VERSION}; run a migration first"
-            )
     return SCHEMA_VERSION
 
 

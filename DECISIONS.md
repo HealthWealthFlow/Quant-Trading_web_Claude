@@ -20,3 +20,5 @@
 | D16 | 2026-09-30 | Models without a configured price are never called; DeepSeek/OpenAI prices ship unset | Budgets need prices; avoid stale/guessed prices |
 | D17 | 2026-09-30 | Deterministic grounding after every extraction (verbatim quote + number checks) | AI output can't be trusted to follow no-fabrication rules by itself |
 | D18 | 2026-09-30 | Default strong model = deepseek-chat (same as cheap) | Uncertain JSON-mode support of other DeepSeek models; user can change in config |
+| D19 | 2026-09-30 | Unassessable score components are UNSCORED with coverage tracked; low-coverage ideas go to RESEARCHING, not ARCHIVED | Avoids both guessing and burying ideas for lack of data |
+| D20 | 2026-09-30 | Additive-only schema migrations (MIGRATIONS map) | Research data must never be dropped |
