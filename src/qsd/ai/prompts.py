@@ -7,6 +7,7 @@ from .schemas import CLAIM_FIELDS, RULE_FIELDS
 
 STAGE_A_VERSION = "a1"
 STAGE_B_VERSION = "b1"
+STAGE_C_VERSION = "c1"
 
 SYSTEM = """You are a skeptical institutional quantitative researcher extracting trading-strategy research data.
 Rules you must follow:
@@ -64,3 +65,16 @@ Return JSON: {{"strategies": [{{
 Regime guidance: BULLISH = sustained uptrend, BEARISH = sustained downtrend, CONSOLIDATION = sideways/range,
 CRASH = sharp fast decline or crisis. Use SOURCE_STATED/SOURCE_EVIDENCE only with a verbatim quote; otherwise
 RATIONALE_INFERRED with low confidence, or UNKNOWN. Market regime is not the same as long/short position direction."""
+
+
+def stage_c_user(strategy: str, wrapped_abstract: str) -> str:
+    return f"""Task: decide how this paper's abstract relates to the trading strategy below. Use ONLY the abstract.
+Strategy: {strategy}
+
+{wrapped_abstract}
+
+Return JSON: {{"relation": REPLICATES|SUPPORTS|CONTRADICTS|UNRELATED|UNCLEAR,
+  "evidence_quote": "verbatim sentence fragment from the abstract (max 300 chars) or null",
+  "confidence": 0.0-1.0}}
+REPLICATES = independently re-tests the same effect; SUPPORTS = consistent evidence; CONTRADICTS = finds the effect
+fails, disappears, or is explained by costs/risk; UNCLEAR when the abstract does not say. Never guess."""

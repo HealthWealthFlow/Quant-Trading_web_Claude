@@ -1,20 +1,19 @@
 # TODO
 
-Milestone status lives in `PROJECT_STATE.json` (run `python -m qsd.cli status`). This file holds finer tasks.
+Phase 1 (M0–M9) is complete. Phase 2 needs the user's go-ahead and budget.
 
-## M9 — Campaign runner (next, last Phase 1 milestone)
-- [ ] Natural-language request → structured campaign (deterministic keyword parsing for asset classes, families,
-      regimes, mode) stored in `campaigns` with budgets
-- [ ] Loop: discover → pick top candidates (tier, abstract relevance) → fetch (PDF link first) → extract → score
-- [ ] Deepening per promising idea: replication + contradiction query templates (spec §72, §73); link found
-      sources as SUPPORTS / CONTRADICTS candidates; update search depth level (§43)
-- [ ] Stop controller (§44, §129): budgets, runtime, low yield, target reached; stop reason recorded
-- [ ] Resumable: campaign state in DB, re-running continues where it stopped
-- [ ] `qsd campaign "Find crash-protection ETF strategies"`; end-to-end test with mocked APIs + fake AI
+## Before/at first live use (user)
+- [ ] Set DeepSeek price + key, contact email; run `qsd campaign ... --dry-run`, then a small campaign (`--docs 3`)
+- [ ] Review NEEDS_REVIEW ideas in the dashboard; tune `scoring.idea_weights` / `handoff` thresholds if needed
 
-## Later milestones — market-regime grouping (§137)
-- [ ] M5: extraction prompt returns regime suitability + basis + confidence; UNKNOWN by default
-- [ ] M6: flag RATIONALE_INFERRED-only regimes for review; regime coverage in diversification tags
-- [ ] M7: regime profile in research package
-- [ ] M8: dashboard grouping/filter by regime (Long / Short / Consolidation / Crash)
-- [ ] M9: campaigns can target a regime
+## Phase 2 backlog (priority order suggestion)
+- [ ] Live smoke tests against arXiv/OpenAlex/Crossref (recorded fixtures from real responses)
+- [ ] Second-opinion review (Claude) for high-priority ideas before handoff (spec §89)
+- [ ] Reference tracing: follow cited DOIs/arXiv ids to originals (spec §30, §71) → search depth L1/L2
+- [ ] Source performance learning + exploration/exploitation allocation (spec §34, §35, §97)
+- [ ] Watchlists + scheduled refresh (spec §37, §38, §96)
+- [ ] YouTube (Data API + captions), podcasts/audio (local Whisper, selective) (spec §17–§20)
+- [ ] GitHub handler + license tracking (spec §109); community sources via official APIs (spec §23)
+- [ ] Browser DevTools/network adapter, public only, with request classification + redaction (spec §12–§16)
+- [ ] Author/organization discovery, source graph view (spec §29, §31, §32, §119)
+- [ ] Postgres option; Quant Auto OS integration beyond the file queue (spec §21 stage)

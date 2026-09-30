@@ -1,8 +1,8 @@
 {
   "project": "Quant Strategy Discovery & Source Intelligence System",
-  "phase": 1,
+  "phase": "1-complete",
   "working_branch": "claude/loving-noether-1m40os",
-  "database_version": 2,
+  "database_version": 3,
   "milestones": [
     {
       "id": "M0",
@@ -52,7 +52,7 @@
     {
       "id": "M9",
       "title": "Campaign runner (NL request -> campaign, depth levels, replication/contradiction search, stop conditions)",
-      "status": "todo"
+      "status": "done"
     }
   ],
   "phase_2_backlog": [

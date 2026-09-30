@@ -248,6 +248,32 @@ def _cmd_web(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_campaign(args: argparse.Namespace) -> int:
+    from .ai import AIGateway, default_providers
+    from .campaign import CampaignLimits, CampaignRunner, parse_request
+
+    if args.dry_run:
+        print(json.dumps(parse_request(args.request or "").to_dict(), indent=2))
+        return 0
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    limits = CampaignLimits(max_queries=args.max_queries, docs_per_round=args.docs, deepen_top_ideas=args.deepen)
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache",
+                       max_requests_per_host=s.budgets.max_sources_per_domain) as fetcher:
+        gw = AIGateway(engine, s, default_providers())
+        connectors = [CONNECTORS[n](fetcher, s.discovery.contact_email) for n in CONNECTORS]
+        runner = CampaignRunner(engine, s, fetcher, gw, connectors, limits)
+        cid = args.resume or runner.create(args.request)
+        if not args.resume:
+            with session_scope(engine) as sess:
+                from .db.models import Campaign
+                print("Parsed request:", json.dumps(sess.get(Campaign, cid).spec))
+        report = runner.run(cid)
+    print(json.dumps(report.__dict__, indent=2, default=str))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="qsd", description="Quant Strategy Discovery & Source Intelligence")
     p.add_argument("--version", action="version", version=f"qsd {__version__}")
@@ -315,6 +341,16 @@ def build_parser() -> argparse.ArgumentParser:
     wb.add_argument("--port", type=int, default=8765)
     wb.add_argument("--db", help="database path or SQLAlchemy URL")
     wb.set_defaults(func=_cmd_web)
+    ca = sub.add_parser("campaign", help='run a research campaign, e.g. qsd campaign "Find crash-protection ETF '
+                                         'strategies"')
+    ca.add_argument("request", nargs="?", help="what to research, in plain English")
+    ca.add_argument("--resume", type=int, help="continue campaign ID where it stopped")
+    ca.add_argument("--dry-run", action="store_true", help="only show how the request is understood")
+    ca.add_argument("--max-queries", type=int, default=8)
+    ca.add_argument("--docs", type=int, default=10, help="documents to fetch + extract per run")
+    ca.add_argument("--deepen", type=int, default=5, help="top ideas to search replication/contradictions for")
+    ca.add_argument("--db", help="database path or SQLAlchemy URL")
+    ca.set_defaults(func=_cmd_campaign)
     return p
 
 

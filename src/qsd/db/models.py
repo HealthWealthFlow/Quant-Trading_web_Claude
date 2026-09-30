@@ -45,7 +45,7 @@ from ..taxonomy import (
     TimeHorizon,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_QUOTE_CHARS = 300  # copyright: short necessary quotations only (spec §108)
 
 
@@ -87,6 +87,8 @@ class Campaign(Base):
     strategy_families: Mapped[list] = mapped_column(default=list)
     target_regimes: Mapped[list] = mapped_column(default=list)
     budgets: Mapped[dict] = mapped_column(default=dict)
+    spec: Mapped[dict] = mapped_column(default=dict)   # v3: parsed request (assets, regimes, families, target)
+    state: Mapped[dict] = mapped_column(default=dict)  # v3: resumable progress + budget spent
     status: Mapped[CampaignStatus] = mapped_column(_enum(CampaignStatus), default=CampaignStatus.PLANNED)
     stop_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

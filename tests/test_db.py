@@ -68,6 +68,8 @@ def test_v1_database_migrates_without_data_loss(tmp_path):
         s.add(new_idea(strategy_name="kept"))
     con = sqlite3.connect(path)  # simulate a v1 database: drop the v2 column, set version 1
     con.execute("ALTER TABLE ideas DROP COLUMN score_details")
+    con.execute("ALTER TABLE campaigns DROP COLUMN spec")
+    con.execute("ALTER TABLE campaigns DROP COLUMN state")
     con.execute("UPDATE schema_meta SET value='1' WHERE key='schema_version'")
     con.commit()
     con.close()

@@ -38,6 +38,8 @@ def make_engine(url_or_path: str | Path) -> Engine:
 # Forward-only, additive migrations: version N -> N+1. Never drop or rewrite research data.
 MIGRATIONS: dict[int, list[str]] = {
     1: ["ALTER TABLE ideas ADD COLUMN score_details JSON NOT NULL DEFAULT '{}'"],
+    2: ["ALTER TABLE campaigns ADD COLUMN spec JSON NOT NULL DEFAULT '{}'",
+        "ALTER TABLE campaigns ADD COLUMN state JSON NOT NULL DEFAULT '{}'"],
 }
 
 

@@ -23,3 +23,5 @@
 | D19 | 2026-09-30 | Unassessable score components are UNSCORED with coverage tracked; low-coverage ideas go to RESEARCHING, not ARCHIVED | Avoids both guessing and burying ideas for lack of data |
 | D20 | 2026-09-30 | Additive-only schema migrations (MIGRATIONS map) | Research data must never be dropped |
 | D21 | 2026-09-30 | Backtest queue is a folder of JSON files (pending/) with a published JSON Schema | Simple, inspectable, decoupled from the Quant Auto OS; no network path to brokers |
+| D22 | 2026-09-30 | Found papers are linked as SUPPORTS/REPLICATES/CONTRADICTS only after a grounded abstract check | A search hit is not evidence; avoids fabricated evidence links |
+| D23 | 2026-09-30 | One CampaignBudget shared by discovery, fetching and the AI gateway; progress in campaigns.state | Hard caps across all spend; safe resume |

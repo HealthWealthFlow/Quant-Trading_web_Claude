@@ -178,3 +178,22 @@ class StageBResult(_Base):
     """Strong-model extraction (spec §86 stage B). May contain several distinct strategies."""
 
     strategies: list[ExtractedStrategy] = Field(default_factory=list)
+
+
+class RelationResult(_Base):
+    """Stage C: how a found paper relates to an idea (spec §72, §73). Grounded against the abstract afterwards."""
+
+    relation: str = "UNCLEAR"
+    evidence_quote: str | None = None
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+
+    @field_validator("relation", mode="before")
+    @classmethod
+    def _rel(cls, v: Any) -> str:
+        v = str(v or "").upper()
+        return v if v in {"REPLICATES", "SUPPORTS", "CONTRADICTS", "UNRELATED", "UNCLEAR"} else "UNCLEAR"
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _conf(cls, v: Any) -> float:
+        return Evidenced._clamp(v)

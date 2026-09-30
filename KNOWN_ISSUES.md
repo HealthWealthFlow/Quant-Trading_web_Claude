@@ -9,3 +9,6 @@
 - AI extraction quality depends on the model; grounding removes unverifiable values, which can leave more UNKNOWNs
   when a model paraphrases instead of quoting. Review NEEDS_REVIEW ideas.
 - Claude prices in config/default.yaml are from Anthropic's published list (Sep 2026); re-check periodically.
+- Not yet exercised against live APIs/AI (see CHECKPOINT.md). Expect some first-run tuning.
+- Request parsing is keyword-based; check `qsd campaign ... --dry-run` output before running.
+- Relation checks read abstracts only; a CONTRADICTS link is a lead for review, not a verdict.

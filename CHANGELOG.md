@@ -1,5 +1,17 @@
 # Changelog
 
+## M9 — Campaign runner (2026-09-30) — Phase 1 complete
+- `qsd.campaign`: plain-English request → stored spec (assets, market directions, families, mode, target) with
+  `--dry-run`; loop discover → rank unfetched candidates (tier + abstract relevance) → fetch (PDF link first) →
+  two-stage extraction → scoring → deepening of top ideas (replication, contradiction and recent-evidence queries).
+- Relation check (stage C, cheap model, abstract only): REPLICATES / SUPPORTS / CONTRADICTS links are recorded only
+  when the quote is found verbatim in the abstract and confidence ≥ 0.6; same-study copies are never counted.
+- Stop controller: budgets (searches, URLs, documents, AI calls/tokens/cost, runtime), low yield, target reached
+  (≥ N distinct promising families); stop reason stored. One campaign budget shared with the AI gateway.
+- Resumable: phases, processed sources, deepened ideas and budget spent saved in `campaigns.state` (schema v3,
+  auto-migration); AI cache + search memory prevent repeated paid work.
+- README getting-started guide. 123 tests (end-to-end campaign with mocked APIs, PDF and AI).
+
 ## M8 — Minimal dashboard (2026-09-30)
 - `qsd web` (FastAPI + Jinja2, server-rendered, no JavaScript, binds to 127.0.0.1 by default; warns if exposed).
 - Overview tiles (§113), strategies by market direction (Long / Short / Consolidation / Crash, §137), top priorities.

@@ -26,10 +26,11 @@ src/qsd/config.py          typed settings; safety options that may not be disabl
 src/qsd/logging_setup.py   JSON-lines logs with secret redaction
 src/qsd/state.py           build-progress state (PROJECT_STATE.json)
 src/qsd/taxonomy.py        shared vocabularies (statuses, reasons, regimes, missing-value markers)
-src/qsd/db/                research DB: models.py (schema v2, additive migrations), engine/session helpers
+src/qsd/db/                research DB: models.py (schema v3, additive migrations), engine/session helpers
 src/qsd/handlers/          format detection + parsers (text, html, pdf, office, spreadsheet, epub, safe zip)
 src/qsd/security.py        prompt-injection detection, untrusted-content wrapper
 src/qsd/localscan.py       read-only local folder index
+src/qsd/campaign/          request parsing, campaign loop, deepening, stop controller, resume
 src/qsd/web/               read-only dashboard (FastAPI + Jinja2, autoescaped)
 src/qsd/packaging/         research packages, handoff rule, file-based backtest queue
 src/qsd/scoring/           deterministic scores, hard fails, dedupe, status pipeline
@@ -42,8 +43,7 @@ docs/MASTER_SPEC.md        full requirements (§ references)
 schemas/                   JSON Schema of the research package (contract with the Quant Auto OS)
 ```
 
-Planned packages:
-`qsd.campaign` (M9).
+All Phase 1 packages are implemented.
 
 ## Key technology choices
 See `DECISIONS.md`.
