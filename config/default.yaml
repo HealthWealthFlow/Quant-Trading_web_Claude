@@ -10,10 +10,22 @@ asset_classes:
   enabled: [STOCK, ETF, OPTIONS, FOREX, CRYPTO]
 
 ai:
-  default_provider: deepseek
-  cheap_model: deepseek-chat
-  strong_model: deepseek-reasoner
-  second_opinion_provider: null   # e.g. anthropic or openai; used only for high-value candidates
+  default_provider: deepseek      # deepseek | openai | anthropic
+  cheap_model: deepseek-chat      # stage A triage
+  strong_model: deepseek-chat     # stage B extraction (set a stronger model if you prefer)
+  second_opinion_provider: null   # e.g. anthropic; used only for high-value candidates (spec §89)
+  second_opinion_model: claude-opus-5-5
+  stage_a_max_chars: 6000         # text sent for cheap triage
+  stage_b_max_chars: 40000        # relevant sections only; whole books are never sent (spec §21)
+  stage_a_max_tokens: 800
+  stage_b_max_tokens: 6000
+  # USD per 1M tokens. A model with no price is NEVER called (budgets can't be enforced without it).
+  # Fill DeepSeek/OpenAI prices from the provider's pricing page before first use.
+  prices:
+    deepseek-chat: null
+    claude-opus-5-5: {input_per_mtok: 4.0, output_per_mtok: 20.0}
+    claude-sonnet-5-5: {input_per_mtok: 2.0, output_per_mtok: 10.0}
+    claude-haiku-4-5: {input_per_mtok: 1.0, output_per_mtok: 5.0}
 
 budgets:                    # Hard caps; the pipeline stops a campaign when any is reached
   max_ai_cost_usd_per_day: 1.0

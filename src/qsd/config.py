@@ -39,11 +39,23 @@ class AssetClassConfig(BaseModel):
         return self
 
 
+class ModelPrice(BaseModel):
+    input_per_mtok: float = Field(ge=0)   # USD per 1M input tokens
+    output_per_mtok: float = Field(ge=0)  # USD per 1M output tokens
+
+
 class AIConfig(BaseModel):
     default_provider: str = "deepseek"
     cheap_model: str = "deepseek-chat"
-    strong_model: str = "deepseek-reasoner"
+    strong_model: str = "deepseek-chat"
     second_opinion_provider: str | None = None
+    second_opinion_model: str = "claude-opus-5-5"
+    stage_a_max_chars: int = Field(6000, gt=0)
+    stage_b_max_chars: int = Field(40000, gt=0)
+    stage_a_max_tokens: int = Field(800, gt=0)
+    stage_b_max_tokens: int = Field(6000, gt=0)
+    # A model without a price is never called: budgets could not be enforced (spec §45).
+    prices: dict[str, ModelPrice | None] = Field(default_factory=dict)
 
 
 class Budgets(BaseModel):

@@ -32,7 +32,7 @@
     {
       "id": "M5",
       "title": "AI layer (provider adapters, cache, cost ledger, two-stage extraction, UNKNOWN enforcement, injection defense)",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "M6",

@@ -2,17 +2,16 @@
 
 Milestone status lives in `PROJECT_STATE.json` (run `python -m qsd.cli status`). This file holds finer tasks.
 
-## M5 — AI layer (next)
-- [ ] Provider interface + adapters: DeepSeek (default, OpenAI-compatible API), OpenAI, Anthropic; keys from env only
-- [ ] Price table per model (config, USD per 1M tokens) → cost per call; ledger rows in `ai_calls`
-- [ ] Cache keyed by sha256(content hash + prompt version + model + task) in `ai_cache` (spec §85)
-- [ ] Hard budget checks before each call: per campaign / day / month (spec §45, config budgets)
-- [ ] Versioned prompts: Stage A (cheap triage: asset, family, basic idea, red flags) and Stage B (strong: rules,
-      rationale, missing rules, regime suitability + basis, claims) (spec §86, §137)
-- [ ] Strict JSON schema validation (pydantic); missing → UNKNOWN; numbers only as CLAIMED_*; per-field confidence
-- [ ] Untrusted wrapper for all source text; injection-flagged sources recorded; responses can't trigger actions
-- [ ] Relevant-section selection for long docs (keyword index, spec §21) so books are never sent whole
-- [ ] Tests with a fake provider: caching, cost ledger, budget stop, invalid JSON, fabricated-number rejection
+## M6 — Scoring (next) — deterministic, no AI
+- [ ] Source quality score 0–100 from tier + transparency signals (citations, code, method), marketing/red-flag
+      penalties (spec §25); evidence quality score (§26) from sample/OOS/cost/replication signals present
+- [ ] Red-flag language detector (§54) incl. martingale/doubling; hard-fail rules (§53) → Rejection rows
+- [ ] Formalization completeness (§48) from known vs UNKNOWN rule fields; parameter complexity (§55)
+- [ ] Idea quality score (§52) with configurable weights; unknown components score 0 and are listed, never guessed
+- [ ] Strategy fingerprint + NEW/VARIANT/DUPLICATE (§69); root evidence id (§70); novelty (§80)
+- [ ] Research priority score (§81) and quality gate bands (§126); status transitions with history
+- [ ] Regime: flag ideas whose regimes are only RATIONALE_INFERRED; diversification tags incl. regime coverage
+- [ ] `qsd score` command; tests for each rule
 
 ## Later milestones — market-regime grouping (§137)
 - [ ] M5: extraction prompt returns regime suitability + basis + confidence; UNKNOWN by default

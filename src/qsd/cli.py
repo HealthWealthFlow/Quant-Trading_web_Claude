@@ -138,6 +138,40 @@ def _cmd_feed(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_extract(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
+    from .ai import AIGateway, ProviderError, UnpricedModelError, default_providers, extract_ideas, idea_summary
+    from .db.models import Source
+    from .discovery import BudgetExhausted
+    from .fetch.pipeline import apply_result
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    path = Path(args.file).resolve()
+    result = parse_file(path)
+    with session_scope(engine) as sess:
+        src = sess.scalars(select(Source).where(Source.local_path == str(path))).one_or_none()
+        if src is None:
+            src = Source(local_path=str(path), access_status=result.access_status)
+            sess.add(src)
+            sess.flush()
+        apply_result(src, result)
+        source_id = src.id
+    gw = AIGateway(engine, s, default_providers(), budget=CampaignBudget(s.budgets))
+    try:
+        rep = extract_ideas(gw, engine, s, source_id, result, force_deep=args.force_deep)
+    except (UnpricedModelError, ProviderError, BudgetExhausted) as e:
+        print(f"Stopped: {e}", file=sys.stderr)
+        return 2
+    out = {"source_id": source_id, "deep_read": rep.deep_read, "skipped": rep.skipped_reason,
+           "cost_usd": round(rep.cost_usd, 6), "grounding_flags": rep.flags,
+           "ideas": [idea_summary(engine, i) for i in rep.idea_ids]}
+    print(json.dumps(out, indent=2, ensure_ascii=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="qsd", description="Quant Strategy Discovery & Source Intelligence")
     p.add_argument("--version", action="version", version=f"qsd {__version__}")
@@ -180,6 +214,11 @@ def build_parser() -> argparse.ArgumentParser:
     fd.add_argument("url")
     fd.add_argument("--db", help="database path or SQLAlchemy URL")
     fd.set_defaults(func=_cmd_feed)
+    ex = sub.add_parser("extract", help="AI-extract strategy ideas from a local file (uses your AI key + budget)")
+    ex.add_argument("file")
+    ex.add_argument("--force-deep", action="store_true", help="run stage B even if triage says not promising")
+    ex.add_argument("--db", help="database path or SQLAlchemy URL")
+    ex.set_defaults(func=_cmd_extract)
     return p
 
 

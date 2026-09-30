@@ -16,3 +16,7 @@
 | D12 | 2026-09-30 | File-creation dates stored as `file_created_date`, never as publication date | Template dates would be fabricated publication dates (spec §1) |
 | D13 | 2026-09-30 | Official APIs (arXiv, OpenAlex, Crossref) use their API terms/rate limits instead of robots.txt, via a code-level endpoint allowlist | robots.txt targets crawlers; API priority per §11; allowlist can't be widened by config |
 | D14 | 2026-09-30 | Work identity: DOI > arXiv id > URL as canonical link | Cross-connector dedupe without a schema change |
+| D15 | 2026-09-30 | Claude adapter uses the official `anthropic` SDK (optional extra), model `claude-opus-5-5`, server-side refusal fallback "default" | Current API guidance; Claude is optional (second opinion) |
+| D16 | 2026-09-30 | Models without a configured price are never called; DeepSeek/OpenAI prices ship unset | Budgets need prices; avoid stale/guessed prices |
+| D17 | 2026-09-30 | Deterministic grounding after every extraction (verbatim quote + number checks) | AI output can't be trusted to follow no-fabrication rules by itself |
+| D18 | 2026-09-30 | Default strong model = deepseek-chat (same as cheap) | Uncertain JSON-mode support of other DeepSeek models; user can change in config |

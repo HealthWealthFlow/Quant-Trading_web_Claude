@@ -1,5 +1,19 @@
 # Changelog
 
+## M5 — AI layer (2026-09-30)
+- Provider adapters: DeepSeek (default) and OpenAI via their chat-completions HTTP APIs (JSON mode); Claude via the
+  official `anthropic` SDK (optional extra) with `claude-opus-5-5` and server-side refusal fallback. Keys from env.
+- `AIGateway`: cache (task + prompt version + provider + model + exact prompt), cost ledger for every call (hits,
+  successes, failures), worst-case pre-call budget checks (campaign / day / month); unpriced models are never called.
+- Two-stage extraction: cheap triage (stage A) → strong extraction (stage B) only for promising sources, on
+  relevant sections only with [p.N]/[slide N] markers; source text always in the untrusted wrapper.
+- Grounding (no AI): non-UNKNOWN values need a verbatim quote found in the source; numbers must exist in the source;
+  claims need their number inside their own quote; unverifiable regime evidence downgraded to RATIONALE_INFERRED
+  (confidence ≤ 0.5). Everything removed is flagged; heavily-flagged ideas go to NEEDS_REVIEW.
+- Ideas stored with per-field provenance facts (page/slide, quote, confidence), regime rows, DESCRIBES link.
+- Untrusted wrapper delimiter is now a content hash (unforgeable and cache-friendly).
+- `qsd extract <file>`. 98 tests (fake provider; no real AI calls).
+
 ## M4 — Discovery connectors (2026-09-30)
 - `qsd.discovery`: arXiv (q-fin categories), OpenAlex, Crossref (official APIs; `contact_email` for polite pools),
   RSS/Atom feeds, user URL lists. Metadata only; absent fields stay UNKNOWN; XML parsed without entity expansion.
