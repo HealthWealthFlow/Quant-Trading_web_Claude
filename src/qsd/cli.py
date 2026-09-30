@@ -10,6 +10,7 @@ from pathlib import Path
 from . import __version__
 from .config import load_settings
 from .db import DB_FILENAME, init_db, make_engine, table_counts
+from .fetch import PoliteFetcher, fetch_and_store
 from .handlers import parse_file
 from .localscan import scan_paths
 from .state import load_state, next_milestone, validate_state
@@ -78,6 +79,21 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_fetch(args: argparse.Namespace) -> int:
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
+        source_id, resp, result = fetch_and_store(args.url, fetcher, engine)
+    out = {"source_id": source_id, "url": resp.url, "final_url": resp.final_url, "status": resp.status_code,
+           "access_status": resp.access_status.value, "error": resp.error, "from_cache": resp.from_cache}
+    if result:
+        out.update(handler=result.handler, metadata=result.metadata, blocks=len(result.blocks),
+                   references=result.references[:20], limitations=result.limitations)
+    print(json.dumps(out, indent=2, ensure_ascii=False))
+    return 0 if resp.ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="qsd", description="Quant Strategy Discovery & Source Intelligence")
     p.add_argument("--version", action="version", version=f"qsd {__version__}")
@@ -96,6 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("paths", nargs="*")
     sc.add_argument("--db", help="database path or SQLAlchemy URL")
     sc.set_defaults(func=_cmd_scan)
+    fe = sub.add_parser("fetch", help="politely fetch one public URL, parse it and store it as a source")
+    fe.add_argument("url")
+    fe.add_argument("--db", help="database path or SQLAlchemy URL")
+    fe.set_defaults(func=_cmd_fetch)
     return p
 
 

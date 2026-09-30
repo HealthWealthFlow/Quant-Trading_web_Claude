@@ -1,5 +1,18 @@
 # Changelog
 
+## M3 — Polite fetcher + compliance (2026-09-30)
+- `qsd.fetch`: URL canonicalization (tracking params, fragments, default ports; rejects embedded credentials).
+- robots.txt checked for every URL and redirect target (RFC 9309: 4xx → allow, 5xx/unreachable → disallow);
+  Crawl-delay honoured; cannot be disabled.
+- Per-host spacing, exponential backoff with jitter, Retry-After honoured (over-long waits end the attempt),
+  cooldown after repeated errors, optional per-host request budget.
+- No credentials sent, cookies cleared after every request, streaming size cap, max 5 redirects.
+- Barrier detection: login walls/401/403 → ACCESS_RESTRICTED, CAPTCHA → MANUAL_ACCESS_REQUIRED (body discarded),
+  paywall → PAYWALLED (publicly delivered part only).
+- Request classification (spec §14) and header redaction (§15). ETag/Last-Modified cache.
+- `fetch_and_store` + `qsd fetch <url>`: Source per canonical URL, fetch_log without headers/bodies,
+  errors table for every failure. 72 tests (network mocked).
+
 ## M2 — Source handlers (2026-09-30)
 - `qsd.handlers`: format detection (magic bytes > content type > extension) and handlers for TXT/MD/JSON/XML/code,
   HTML (scripts removed, `citation_*` meta), PDF (per-page), DOCX, PPTX (slides, notes, tables), CSV/XLSX

@@ -22,7 +22,7 @@
     {
       "id": "M3",
       "title": "Polite fetcher + compliance (robots, rate limits, paywall/CAPTCHA/login detection, redaction, URL canonicalization)",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "M4",

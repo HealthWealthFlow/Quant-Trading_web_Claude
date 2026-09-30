@@ -2,17 +2,16 @@
 
 Milestone status lives in `PROJECT_STATE.json` (run `python -m qsd.cli status`). This file holds finer tasks.
 
-## M3 — Polite fetcher + compliance (next)
-- [ ] URL canonicalization (lowercase host, strip fragments/tracking params, sort query) + tests
-- [ ] robots.txt cache per host; disallowed → ROBOTS_DISALLOWED (not configurable off)
-- [ ] Per-domain rate limiter (requests/min), exponential backoff + jitter, Retry-After, cooldown after repeated errors
-- [ ] HTTP client (httpx): size cap (max_download_mb), timeout, identifying User-Agent, no cookies persisted
-- [ ] Detect login walls / paywalls / CAPTCHA → ACCESS_RESTRICTED / PAYWALLED / MANUAL_ACCESS_REQUIRED, stop
-- [ ] Request classification (spec §14) + header redaction; fetch_log rows hold no headers/bodies
-- [ ] HTTP cache (ETag / Last-Modified) to avoid refetching
-- [ ] `fetch_and_parse(url)` → HandlerResult + Source row + fetch_log; errors → errors table (no silent failure)
-- [ ] Tests with a local mock transport: 429 + Retry-After, robots disallow, paywall/CAPTCHA pages, oversize body,
-      redirect to login, secret-bearing headers never logged
+## M4 — Discovery connectors (next)
+- [ ] Connector interface: search(query, limit) → list[Candidate(title, authors, date, url, pdf_url, abstract,
+      source_type, venue, ids{doi,arxiv,ssrn})]; metadata only, UNKNOWN when absent
+- [ ] arXiv API (q-fin categories, Atom), OpenAlex (works search, polite `mailto` config), Crossref (works),
+      RSS/Atom feeds, user-provided URL lists
+- [ ] Query families per asset class × strategy family (spec §39) + query expansion vocabulary (spec §40)
+- [ ] Search memory: skip identical (connector, normalized query) within a freshness window; record results/useful
+- [ ] Campaign budget counters (search requests, URLs, documents) that stop discovery when exhausted (spec §45)
+- [ ] Initial source tiering from domain lists (spec §24) — deterministic, no AI
+- [ ] Tests with recorded/mock API responses; `qsd discover "<query>" --connector arxiv`
 
 ## Later milestones — market-regime grouping (§137)
 - [ ] M5: extraction prompt returns regime suitability + basis + confidence; UNKNOWN by default
