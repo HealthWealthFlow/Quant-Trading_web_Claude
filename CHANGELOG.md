@@ -1,5 +1,18 @@
 # Changelog
 
+## M2 — Source handlers (2026-09-30)
+- `qsd.handlers`: format detection (magic bytes > content type > extension) and handlers for TXT/MD/JSON/XML/code,
+  HTML (scripts removed, `citation_*` meta), PDF (per-page), DOCX, PPTX (slides, notes, tables), CSV/XLSX
+  (formulas never evaluated), EPUB (no AGPL dependency; DRM books refused), ZIP (one level, safe).
+- Every text block keeps its location (page / slide / section / sheet / member) for fact provenance.
+- Limitations are reported, never papered over: ENCRYPTED, DRM_PROTECTED, NO_TEXT_LAYER_OCR_REQUIRED,
+  UNREADABLE_CHART_DATA, UNSUPPORTED_FORMAT, UNSAFE_ARCHIVE, TRUNCATED, PARSE_ERROR, macro containers.
+- File-creation dates are stored as `file_created_date`, never as the publication date.
+- `qsd.security`: prompt-injection phrase detection (flagged, text preserved) and nonce-delimited untrusted wrapper.
+- Safe ZIP: member/size/ratio limits, no path traversal, absolute paths or symlinks.
+- `qsd.localscan` + `qsd scan`: read-only folder indexing into `local_files`; `qsd parse <file>` summary.
+- References (DOI / arXiv / SSRN) extracted from text and links. 53 tests.
+
 ## M1 — Database schema (2026-09-30)
 - SQLite research DB (SQLAlchemy 2, Postgres-compatible types), schema v1, `qsd db init` / `qsd db info`.
 - Tables: campaigns, sources, source_links, fetch_log, source_facts, ideas, idea_regimes, idea_sources,

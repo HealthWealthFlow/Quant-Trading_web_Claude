@@ -5,10 +5,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from . import __version__
 from .config import load_settings
 from .db import DB_FILENAME, init_db, make_engine, table_counts
+from .handlers import parse_file
+from .localscan import scan_paths
 from .state import load_state, next_milestone, validate_state
 
 
@@ -50,6 +53,31 @@ def _cmd_db_info(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_parse(args: argparse.Namespace) -> int:
+    r = parse_file(args.file)
+    summary = {
+        "handler": r.handler, "format": r.format, "access_status": r.access_status.value, "sha256": r.sha256,
+        "size": r.size, "metadata": r.metadata, "blocks": len(r.blocks), "tables": len(r.tables),
+        "links": len(r.links), "references": r.references, "limitations": r.limitations,
+        "preview": [{"location": b.location.label(), "text": b.text[:160]} for b in r.blocks[:5]],
+    }
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _cmd_scan(args: argparse.Namespace) -> int:
+    s = load_settings()
+    roots = [Path(p) for p in args.paths] or [s.resolve_path(p) for p in s.paths.local_sources]
+    if not roots:
+        print("No folders given and paths.local_sources is empty in config.", file=sys.stderr)
+        return 2
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    report = scan_paths(roots, engine)
+    print(json.dumps(report.__dict__))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="qsd", description="Quant Strategy Discovery & Source Intelligence")
     p.add_argument("--version", action="version", version=f"qsd {__version__}")
@@ -61,6 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
     db_sub = db.add_subparsers(dest="db_command", required=True)
     db_sub.add_parser("init", help="create tables / check schema version").set_defaults(func=_cmd_db_init)
     db_sub.add_parser("info", help="row counts per table").set_defaults(func=_cmd_db_info)
+    ps = sub.add_parser("parse", help="parse one local file and print a summary (read-only)")
+    ps.add_argument("file")
+    ps.set_defaults(func=_cmd_parse)
+    sc = sub.add_parser("scan", help="index local folders read-only (default: paths.local_sources)")
+    sc.add_argument("paths", nargs="*")
+    sc.add_argument("--db", help="database path or SQLAlchemy URL")
+    sc.set_defaults(func=_cmd_scan)
     return p
 
 

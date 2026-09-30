@@ -17,7 +17,7 @@
     {
       "id": "M2",
       "title": "Source handlers (TXT/MD, HTML, PDF, DOCX, PPTX, XLSX/CSV, EPUB), hashing, safe archives, local scan",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "M3",
