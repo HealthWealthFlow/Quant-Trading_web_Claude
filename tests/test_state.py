@@ -6,7 +6,9 @@ from qsd.state import STATE_FILE, load_state, next_milestone, set_status, valida
 def test_repo_state_file_is_valid():
     state = load_state(STATE_FILE)
     assert validate_state(state) == []
-    assert next_milestone(state) is not None
+    nxt = next_milestone(state)
+    all_done = all(m["status"] == "done" for m in state["milestones"])
+    assert (nxt is None) == all_done
 
 
 def _state():

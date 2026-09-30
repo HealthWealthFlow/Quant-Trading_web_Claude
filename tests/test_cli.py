@@ -5,7 +5,8 @@ from qsd.cli import main
 
 def test_status_command(capsys):
     assert main(["status"]) == 0
-    assert "Next:" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Next:" in out or "All milestones done." in out
 
 
 def test_config_command(capsys):
