@@ -30,6 +30,7 @@ src/qsd/db/                research DB: models.py (schema v2, additive migration
 src/qsd/handlers/          format detection + parsers (text, html, pdf, office, spreadsheet, epub, safe zip)
 src/qsd/security.py        prompt-injection detection, untrusted-content wrapper
 src/qsd/localscan.py       read-only local folder index
+src/qsd/web/               read-only dashboard (FastAPI + Jinja2, autoescaped)
 src/qsd/packaging/         research packages, handoff rule, file-based backtest queue
 src/qsd/scoring/           deterministic scores, hard fails, dedupe, status pipeline
 src/qsd/ai/                providers, gateway (cache/ledger/budgets), prompts, schemas, grounding, extraction
@@ -42,7 +43,7 @@ schemas/                   JSON Schema of the research package (contract with th
 ```
 
 Planned packages:
-`qsd.web` (M8), `qsd.campaign` (M9).
+`qsd.campaign` (M9).
 
 ## Key technology choices
 See `DECISIONS.md`.

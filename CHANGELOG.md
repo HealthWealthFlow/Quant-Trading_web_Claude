@@ -1,5 +1,17 @@
 # Changelog
 
+## M8 — Minimal dashboard (2026-09-30)
+- `qsd web` (FastAPI + Jinja2, server-rendered, no JavaScript, binds to 127.0.0.1 by default; warns if exposed).
+- Overview tiles (§113), strategies by market direction (Long / Short / Consolidation / Crash, §137), top priorities.
+- Ideas table (§115) with status / market-direction / asset filters; idea detail (§116) with red-flag panel (§117),
+  unscored components, missing rules, provenance, claims marked "not validated", regime evidence, research
+  completeness (§128), handoff eligibility, scores, known rules with quotes/pages, downstream checks, status history.
+- Sources (§114/§118 basic filters), AI cost (§120: by provider/model/task, cache hit rate, linear month projection,
+  cost per promising idea), errors (§133).
+- Security: autoescape everywhere (untrusted titles/quotes), only http(s) links rendered, read-only (no write routes).
+- Status badges pair colour with icon + text (never colour alone); light/dark via prefers-color-scheme.
+- Package market-regime rows now in fixed order. 119 tests (incl. XSS test).
+
 ## M7 — Research package + backtest queue (2026-09-30)
 - `qsd.packaging`: research package (spec §122) with provenance (DOI/URL/hash/root evidence), original /
   supporting / contradicting sources, known rules with quote + page, unknown rules, parameters, market-regime

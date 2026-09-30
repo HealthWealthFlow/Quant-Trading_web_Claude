@@ -232,6 +232,22 @@ def _cmd_queue(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_web(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from .web import create_app
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        print("WARNING: the dashboard has no login; exposing it beyond this computer shares your research data.",
+              file=sys.stderr)
+    print(f"Dashboard: http://{args.host}:{args.port}/")
+    uvicorn.run(create_app(engine, s), host=args.host, port=args.port, log_level="warning")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="qsd", description="Quant Strategy Discovery & Source Intelligence")
     p.add_argument("--version", action="version", version=f"qsd {__version__}")
@@ -294,6 +310,11 @@ def build_parser() -> argparse.ArgumentParser:
     qq.add_argument("--list", action="store_true", help="list pending packages")
     qq.add_argument("--db", help="database path or SQLAlchemy URL")
     qq.set_defaults(func=_cmd_queue)
+    wb = sub.add_parser("web", help="start the read-only dashboard (default http://127.0.0.1:8765/)")
+    wb.add_argument("--host", default="127.0.0.1")
+    wb.add_argument("--port", type=int, default=8765)
+    wb.add_argument("--db", help="database path or SQLAlchemy URL")
+    wb.set_defaults(func=_cmd_web)
     return p
 
 

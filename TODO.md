@@ -2,15 +2,15 @@
 
 Milestone status lives in `PROJECT_STATE.json` (run `python -m qsd.cli status`). This file holds finer tasks.
 
-## M8 — Minimal dashboard (next)
-- [ ] FastAPI + Jinja2 server-rendered pages, no JS framework; read-only views of the DB; bind to 127.0.0.1
-- [ ] Overview cards (spec §113): sources, high-quality sources, ideas, promising, backtest-ready, duplicates,
-      rejected, AI spend (today/month), unresolved errors
-- [ ] Ideas table (§115) with filters incl. market regime (Long/Short/Consolidation/Crash) and status
-- [ ] Idea detail (§116) with red-flag panel (§117), known/unknown rules with quotes/pages, claims marked
-      unvalidated, research-completeness checklist (§128), next research action
-- [ ] Sources page (§114, §118 basic filters), AI cost page (§120), errors page (§133)
-- [ ] `qsd web` command; tests with FastAPI TestClient
+## M9 — Campaign runner (next, last Phase 1 milestone)
+- [ ] Natural-language request → structured campaign (deterministic keyword parsing for asset classes, families,
+      regimes, mode) stored in `campaigns` with budgets
+- [ ] Loop: discover → pick top candidates (tier, abstract relevance) → fetch (PDF link first) → extract → score
+- [ ] Deepening per promising idea: replication + contradiction query templates (spec §72, §73); link found
+      sources as SUPPORTS / CONTRADICTS candidates; update search depth level (§43)
+- [ ] Stop controller (§44, §129): budgets, runtime, low yield, target reached; stop reason recorded
+- [ ] Resumable: campaign state in DB, re-running continues where it stopped
+- [ ] `qsd campaign "Find crash-protection ETF strategies"`; end-to-end test with mocked APIs + fake AI
 
 ## Later milestones — market-regime grouping (§137)
 - [ ] M5: extraction prompt returns regime suitability + basis + confidence; UNKNOWN by default

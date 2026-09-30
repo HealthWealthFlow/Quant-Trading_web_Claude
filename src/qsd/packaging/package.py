@@ -20,7 +20,7 @@ from sqlalchemy import Engine, select
 from ..config import Settings
 from ..db import session_scope
 from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Source, SourceFact
-from ..taxonomy import UNKNOWN, IdeaSourceRole, IdeaStatus, RegimeSuitability, TimeHorizon
+from ..taxonomy import UNKNOWN, IdeaSourceRole, IdeaStatus, MarketRegime, RegimeSuitability, TimeHorizon
 
 PACKAGE_VERSION = "1.0"
 DOWNSTREAM_WARNING = ("EXTERNAL PERFORMANCE CLAIMS ARE NOT VALIDATED. "
@@ -174,7 +174,7 @@ def build_package(engine: Engine, settings: Settings, idea_id: int) -> ResearchP
                     "confidence": r.confidence, "evidence": _evidence(s.get(SourceFact, r.source_fact_id)
                                                                       if r.source_fact_id else None,
                                                                       r.suitability.value)}
-                   for r in idea.regimes]
+                   for r in sorted(idea.regimes, key=lambda r: list(MarketRegime).index(r.regime))]
         flags = idea.red_flags or []
         concerns = {
             "liquidity": [comps.get("liquidity", {}).get("basis", "NOT_ASSESSED")],
