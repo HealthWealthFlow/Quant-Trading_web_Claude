@@ -1,0 +1,92 @@
+# Default configuration. Override per machine with config/local.yaml (gitignored)
+# or with QSD_<SECTION>__<KEY> environment variables. Secrets go in environment variables only.
+
+paths:
+  data_dir: data            # SQLite DB, caches, preserved originals
+  log_dir: logs
+  local_sources: []         # Read-only folders to scan, e.g. ["D:\\QuantResearch", "D:\\StrategyPapers"]
+
+asset_classes:
+  enabled: [STOCK, ETF, OPTIONS, FOREX, CRYPTO]
+
+ai:
+  default_provider: deepseek      # deepseek | openai | anthropic
+  cheap_model: deepseek-chat      # stage A triage
+  strong_model: deepseek-chat     # stage B extraction (set a stronger model if you prefer)
+  second_opinion_provider: null   # e.g. anthropic; used only for high-value candidates (spec §89)
+  second_opinion_model: claude-opus-5-5
+  stage_a_max_chars: 6000         # text sent for cheap triage
+  stage_b_max_chars: 40000        # relevant sections only; whole books are never sent (spec §21)
+  stage_a_max_tokens: 800
+  stage_b_max_tokens: 6000
+  # USD per 1M tokens. A model with no price is NEVER called (budgets can't be enforced without it).
+  # Fill DeepSeek/OpenAI prices from the provider's pricing page before first use.
+  prices:
+    deepseek-chat: null
+    claude-opus-5-5: {input_per_mtok: 4.0, output_per_mtok: 20.0}
+    claude-sonnet-5-5: {input_per_mtok: 2.0, output_per_mtok: 10.0}
+    claude-haiku-4-5: {input_per_mtok: 1.0, output_per_mtok: 5.0}
+
+budgets:                    # Hard caps; the pipeline stops a campaign when any is reached
+  max_ai_cost_usd_per_day: 1.0
+  max_ai_cost_usd_per_month: 20.0
+  max_ai_cost_usd_per_campaign: 2.0
+  max_ai_calls_per_campaign: 200
+  max_ai_tokens_per_campaign: 2000000
+  max_search_requests_per_campaign: 100
+  max_urls_per_campaign: 300
+  max_documents_per_campaign: 150
+  max_sources_per_domain: 25
+  max_runtime_minutes_per_campaign: 60
+  max_video_minutes_per_campaign: 0     # Phase 2
+  max_audio_minutes_per_campaign: 0     # Phase 2
+
+crawling:
+  user_agent: "QSD-Research-Bot/0.1 (+polite; respects robots.txt)"
+  respect_robots_txt: true
+  requests_per_minute_per_domain: 10
+  max_retries: 3
+  backoff_base_seconds: 2.0
+  request_timeout_seconds: 30
+  max_download_mb: 50
+
+exploration:                # Share of research effort (must sum to 1.0)
+  known_quality: 0.7
+  new_promising: 0.2
+  experimental: 0.1
+
+quality_gate:
+  high_priority: 85
+  promising: 70
+  research_further: 55
+
+discovery:
+  contact_email: null       # e.g. you@example.com — OpenAlex/Crossref ask for this ("polite pool")
+  results_per_query: 10
+  search_memory_days: 30    # an identical (connector, query) search is not repeated within this window
+
+scoring:
+  # Idea quality weights (spec §52); must sum to 100.
+  idea_weights:
+    economic_rationale: 12
+    rule_quantifiability: 10
+    point_in_time: 8
+    data_availability: 8
+    liquidity: 10
+    exit_executability: 8
+    edge_vs_cost: 10
+    parameter_simplicity: 6
+    expected_robustness: 6
+    opportunity_frequency: 5
+    tail_risk: 5
+    capacity: 4
+    automation: 4
+    diversification: 4
+  min_coverage_for_gate: 0.6   # share of weight actually assessed before an idea may be archived/promoted
+
+handoff:                       # backtest handoff rule (spec §123); claimed profitability is NOT a criterion
+  min_completeness: 60         # formalization completeness (spec §48)
+  min_normalized_quality: 55   # idea quality over the assessed components
+  min_coverage: 0.6            # share of idea-quality weight actually assessed
+  min_data_availability: 0.4
+  queue_dir: data/backtest_queue   # the Quant Auto OS reads pending/*.json from here

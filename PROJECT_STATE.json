@@ -1,0 +1,73 @@
+{
+  "project": "Quant Strategy Discovery & Source Intelligence System",
+  "phase": "1-complete",
+  "working_branch": "claude/loving-noether-1m40os",
+  "database_version": 3,
+  "milestones": [
+    {
+      "id": "M0",
+      "title": "Foundation: layout, config, logging, checkpoint files, CI, budgets",
+      "status": "done"
+    },
+    {
+      "id": "M1",
+      "title": "Database schema (sources, provenance, ideas, rejections, search memory, AI ledger, errors)",
+      "status": "done"
+    },
+    {
+      "id": "M2",
+      "title": "Source handlers (TXT/MD, HTML, PDF, DOCX, PPTX, XLSX/CSV, EPUB), hashing, safe archives, local scan",
+      "status": "done"
+    },
+    {
+      "id": "M3",
+      "title": "Polite fetcher + compliance (robots, rate limits, paywall/CAPTCHA/login detection, redaction, URL canonicalization)",
+      "status": "done"
+    },
+    {
+      "id": "M4",
+      "title": "Discovery connectors (arXiv, OpenAlex/Crossref, RSS, user URLs), query families, search memory, budgets",
+      "status": "done"
+    },
+    {
+      "id": "M5",
+      "title": "AI layer (provider adapters, cache, cost ledger, two-stage extraction, UNKNOWN enforcement, injection defense)",
+      "status": "done"
+    },
+    {
+      "id": "M6",
+      "title": "Scoring (source/evidence/idea scores, hard fails, red flags, completeness, fingerprints, root evidence, status pipeline)",
+      "status": "done"
+    },
+    {
+      "id": "M7",
+      "title": "Research package + backtest queue handoff",
+      "status": "done"
+    },
+    {
+      "id": "M8",
+      "title": "Minimal dashboard (overview, ideas, idea detail + red flags, sources, AI cost, errors)",
+      "status": "done"
+    },
+    {
+      "id": "M9",
+      "title": "Campaign runner (NL request -> campaign, depth levels, replication/contradiction search, stop conditions)",
+      "status": "done"
+    }
+  ],
+  "phase_2_backlog": [
+    "YouTube (Data API + captions)",
+    "Audio/video transcription (local Whisper, selective)",
+    "GitHub handler + license tracking",
+    "Community sources via official APIs",
+    "Browser DevTools/network adapter (public only, classification + redaction)",
+    "Source graph, author/organization discovery",
+    "Watchlists + scheduled refresh",
+    "Self-improving source prioritization",
+    "Research graph view",
+    "Postgres",
+    "Quant Auto OS integration"
+  ],
+  "last_commit": "see git log",
+  "updated_at": "2026-09-30"
+}
