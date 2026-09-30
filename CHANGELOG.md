@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Market-regime taxonomy (`qsd.taxonomy`) and spec §137 (user addendum).
+
 ## M0 — Foundation (2026-09-30)
 - Project layout (`src/qsd`), `pyproject.toml`, `qsd` CLI (`status`, `config`).
 - Typed configuration (YAML + local overrides + `QSD_*` env), budgets, crawling policy; robots.txt respect enforced.

@@ -11,3 +11,4 @@
 | D7 | 2026-09-30 | robots.txt respect cannot be disabled via config | Spec §104, §134 |
 | D8 | 2026-09-30 | Cross-platform paths (Windows + Linux) | User may run on Windows PC or a server |
 | D9 | 2026-09-30 | Phase 1 = milestones M0–M9; Phase 2 backlog in PROJECT_STATE.json | Claude Code build budget capped at ~$30 |
+| D10 | 2026-09-30 | Market-regime grouping (Bullish/Bearish/Consolidation/Crash) as its own multi-label dimension with suitability + basis + confidence, separate from position long/short | User requirement §137; avoids mixing market state with trade direction |

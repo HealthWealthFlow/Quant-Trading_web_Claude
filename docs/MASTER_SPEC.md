@@ -615,3 +615,13 @@ Source_Intelligence/ (Web_Search, YouTube, Documents, Audio_Video, DevTools_Netw
 Source_Graph); Strategy_Discovery/ (Extraction, Quality_Gate, Duplicate_Detection, Evidence_Search, Red_Team,
 Research_Packages); Backtest_Queue/. Source Intelligence searches aggressively; Strategy Discovery filters
 aggressively.
+
+## 137. Market-regime grouping (user addendum, 2026-09-30)
+Group every strategy idea by the market direction/state it is designed for: LONG market (BULLISH uptrend),
+SHORT market (BEARISH downtrend), CONSOLIDATION (sideways/range), CRASH (sharp decline/crisis). Multi-label.
+Separate from position direction (§46): a short strategy may target a bullish market; a long strategy may target a
+crash. For each regime store suitability (SUITED / UNSUITED / UNKNOWN), basis (SOURCE_STATED, SOURCE_EVIDENCE,
+RATIONALE_INFERRED, UNKNOWN), confidence, and the provenance fact. Default UNKNOWN; never guessed (§1, §47).
+Regime-split performance from a source is a CLAIM (§82); downstream must verify per regime using its own objective
+regime definitions. Dashboard and research packages must allow filtering/grouping by regime; campaigns may target a
+regime (e.g. "Find crash-protection strategies for ETFs"). Regime coverage also feeds diversification (§79).
