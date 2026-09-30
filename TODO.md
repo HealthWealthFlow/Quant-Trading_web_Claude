@@ -2,13 +2,15 @@
 
 Milestone status lives in `PROJECT_STATE.json` (run `python -m qsd.cli status`). This file holds finer tasks.
 
-## M7 — Research package + backtest queue (next)
-- [ ] Package builder (spec §122): JSON with provenance, original/supporting/contradicting sources, hypothesis,
-      known + unknown rules, regimes (§137), data & point-in-time requirements, concerns, scores + coverage
-- [ ] Mandatory downstream warning (§124) and CLAIMED_* section clearly separated
-- [ ] Handoff rule (§123): no hard fail, completeness threshold, provenance known, quality above threshold
-- [ ] `backtest_queue` (table or JSONL folder) + status SUBMITTED_TO_BACKTEST; never any broker/live path (§125)
-- [ ] JSON schema file for the package so the Quant Auto OS can validate it; `qsd package` / `qsd queue`
+## M8 — Minimal dashboard (next)
+- [ ] FastAPI + Jinja2 server-rendered pages, no JS framework; read-only views of the DB; bind to 127.0.0.1
+- [ ] Overview cards (spec §113): sources, high-quality sources, ideas, promising, backtest-ready, duplicates,
+      rejected, AI spend (today/month), unresolved errors
+- [ ] Ideas table (§115) with filters incl. market regime (Long/Short/Consolidation/Crash) and status
+- [ ] Idea detail (§116) with red-flag panel (§117), known/unknown rules with quotes/pages, claims marked
+      unvalidated, research-completeness checklist (§128), next research action
+- [ ] Sources page (§114, §118 basic filters), AI cost page (§120), errors page (§133)
+- [ ] `qsd web` command; tests with FastAPI TestClient
 
 ## Later milestones — market-regime grouping (§137)
 - [ ] M5: extraction prompt returns regime suitability + basis + confidence; UNKNOWN by default

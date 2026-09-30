@@ -1,0 +1,209 @@
+{
+  "additionalProperties": false,
+  "description": "Package schema (exported as JSON Schema for the Quant Auto OS).",
+  "properties": {
+    "package_version": {
+      "title": "Package Version",
+      "type": "string"
+    },
+    "generated_at": {
+      "title": "Generated At",
+      "type": "string"
+    },
+    "warning": {
+      "title": "Warning",
+      "type": "string"
+    },
+    "strategy_id": {
+      "title": "Strategy Id",
+      "type": "string"
+    },
+    "idea_id": {
+      "title": "Idea Id",
+      "type": "integer"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "strategy_name": {
+      "title": "Strategy Name",
+      "type": "string"
+    },
+    "hypothesis": {
+      "title": "Hypothesis",
+      "type": "string"
+    },
+    "asset_classes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Asset Classes",
+      "type": "array"
+    },
+    "strategy_families": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Strategy Families",
+      "type": "array"
+    },
+    "position_direction": {
+      "title": "Position Direction",
+      "type": "string"
+    },
+    "time_horizon": {
+      "title": "Time Horizon",
+      "type": "string"
+    },
+    "economic_rationale": {
+      "additionalProperties": true,
+      "title": "Economic Rationale",
+      "type": "object"
+    },
+    "provenance": {
+      "additionalProperties": true,
+      "title": "Provenance",
+      "type": "object"
+    },
+    "original_sources": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Original Sources",
+      "type": "array"
+    },
+    "supporting_sources": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Supporting Sources",
+      "type": "array"
+    },
+    "contradicting_sources": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Contradicting Sources",
+      "type": "array"
+    },
+    "known_rules": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Known Rules",
+      "type": "object"
+    },
+    "unknown_rules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unknown Rules",
+      "type": "array"
+    },
+    "parameters": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Parameters",
+      "type": "object"
+    },
+    "market_regimes": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Market Regimes",
+      "type": "array"
+    },
+    "data_requirements": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Data Requirements",
+      "type": "array"
+    },
+    "point_in_time_requirements": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Point In Time Requirements",
+      "type": "array"
+    },
+    "downstream_checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Downstream Checks",
+      "type": "array"
+    },
+    "concerns": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Concerns",
+      "type": "object"
+    },
+    "source_claims": {
+      "additionalProperties": true,
+      "description": "Unvalidated performance claims, verbatim from the source.",
+      "title": "Source Claims",
+      "type": "object"
+    },
+    "scores": {
+      "additionalProperties": true,
+      "title": "Scores",
+      "type": "object"
+    },
+    "research_completeness": {
+      "additionalProperties": true,
+      "title": "Research Completeness",
+      "type": "object"
+    },
+    "handoff": {
+      "additionalProperties": true,
+      "title": "Handoff",
+      "type": "object"
+    }
+  },
+  "required": [
+    "package_version",
+    "generated_at",
+    "warning",
+    "strategy_id",
+    "idea_id",
+    "status",
+    "strategy_name",
+    "hypothesis",
+    "asset_classes",
+    "strategy_families",
+    "position_direction",
+    "time_horizon",
+    "economic_rationale",
+    "provenance",
+    "original_sources",
+    "supporting_sources",
+    "contradicting_sources",
+    "known_rules",
+    "unknown_rules",
+    "parameters",
+    "market_regimes",
+    "data_requirements",
+    "point_in_time_requirements",
+    "downstream_checks",
+    "concerns",
+    "source_claims",
+    "scores",
+    "research_completeness",
+    "handoff"
+  ],
+  "title": "ResearchPackage",
+  "type": "object"
+}

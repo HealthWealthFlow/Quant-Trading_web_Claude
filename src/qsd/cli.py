@@ -186,6 +186,52 @@ def _cmd_score(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_package(args: argparse.Namespace) -> int:
+    from .packaging import build_package, export_schema
+
+    if args.schema:
+        print(f"Schema written to {export_schema(Path(args.schema))}")
+        return 0
+    if args.idea is None:
+        print("give an idea id, or --schema PATH", file=sys.stderr)
+        return 2
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    print(build_package(engine, s, args.idea).model_dump_json(indent=2))
+    return 0
+
+
+def _cmd_queue(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
+    from .db.models import Idea
+    from .packaging import submit_to_queue
+    from .taxonomy import IdeaStatus
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    if args.list:
+        pending = s.resolve_path(s.handoff.queue_dir) / "pending"
+        for p in sorted(pending.glob("*.json")) if pending.exists() else []:
+            print(p.name)
+        return 0
+    if args.submit_ready:
+        with session_scope(engine) as sess:
+            ids = list(sess.scalars(select(Idea.id).where(Idea.status.in_(
+                [IdeaStatus.PROMISING, IdeaStatus.READY_FOR_FORMALIZATION]))))
+    else:
+        ids = args.submit
+    if not ids:
+        print("nothing to submit (use --submit ID or --submit-ready)", file=sys.stderr)
+        return 2
+    for i in ids:
+        ok, path, reasons = submit_to_queue(engine, s, i)
+        print(f"idea {i}: " + (f"queued -> {path}" if ok else "NOT queued: " + "; ".join(reasons)))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="qsd", description="Quant Strategy Discovery & Source Intelligence")
     p.add_argument("--version", action="version", version=f"qsd {__version__}")
@@ -237,6 +283,17 @@ def build_parser() -> argparse.ArgumentParser:
     sco.add_argument("--idea", type=int, help="score one idea (default: all)")
     sco.add_argument("--db", help="database path or SQLAlchemy URL")
     sco.set_defaults(func=_cmd_score)
+    pk = sub.add_parser("package", help="print an idea's research package (JSON) or export the package schema")
+    pk.add_argument("idea", nargs="?", type=int)
+    pk.add_argument("--schema", help="write the package JSON Schema to this path")
+    pk.add_argument("--db", help="database path or SQLAlchemy URL")
+    pk.set_defaults(func=_cmd_package)
+    qq = sub.add_parser("queue", help="hand eligible ideas to the backtest queue (files only, never a broker)")
+    qq.add_argument("--submit", type=int, action="append", default=[], help="idea id (repeatable)")
+    qq.add_argument("--submit-ready", action="store_true", help="submit all PROMISING / READY ideas that pass")
+    qq.add_argument("--list", action="store_true", help="list pending packages")
+    qq.add_argument("--db", help="database path or SQLAlchemy URL")
+    qq.set_defaults(func=_cmd_queue)
     return p
 
 

@@ -30,6 +30,7 @@ src/qsd/db/                research DB: models.py (schema v2, additive migration
 src/qsd/handlers/          format detection + parsers (text, html, pdf, office, spreadsheet, epub, safe zip)
 src/qsd/security.py        prompt-injection detection, untrusted-content wrapper
 src/qsd/localscan.py       read-only local folder index
+src/qsd/packaging/         research packages, handoff rule, file-based backtest queue
 src/qsd/scoring/           deterministic scores, hard fails, dedupe, status pipeline
 src/qsd/ai/                providers, gateway (cache/ledger/budgets), prompts, schemas, grounding, extraction
 src/qsd/discovery/         connectors (arXiv/OpenAlex/Crossref/RSS), query families, tiers, budgets, runner
@@ -37,10 +38,11 @@ src/qsd/fetch/             polite fetcher: urls, robots, rate limits, access-bar
 src/qsd/cli.py             `qsd` command
 tests/                     pytest suite
 docs/MASTER_SPEC.md        full requirements (§ references)
+schemas/                   JSON Schema of the research package (contract with the Quant Auto OS)
 ```
 
 Planned packages:
-`qsd.packaging` (M7), `qsd.web` (M8), `qsd.campaign` (M9).
+`qsd.web` (M8), `qsd.campaign` (M9).
 
 ## Key technology choices
 See `DECISIONS.md`.

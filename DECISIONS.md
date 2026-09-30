@@ -22,3 +22,4 @@
 | D18 | 2026-09-30 | Default strong model = deepseek-chat (same as cheap) | Uncertain JSON-mode support of other DeepSeek models; user can change in config |
 | D19 | 2026-09-30 | Unassessable score components are UNSCORED with coverage tracked; low-coverage ideas go to RESEARCHING, not ARCHIVED | Avoids both guessing and burying ideas for lack of data |
 | D20 | 2026-09-30 | Additive-only schema migrations (MIGRATIONS map) | Research data must never be dropped |
+| D21 | 2026-09-30 | Backtest queue is a folder of JSON files (pending/) with a published JSON Schema | Simple, inspectable, decoupled from the Quant Auto OS; no network path to brokers |

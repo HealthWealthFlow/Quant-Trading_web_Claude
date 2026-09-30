@@ -83,3 +83,10 @@ scoring:
     automation: 4
     diversification: 4
   min_coverage_for_gate: 0.6   # share of weight actually assessed before an idea may be archived/promoted
+
+handoff:                       # backtest handoff rule (spec §123); claimed profitability is NOT a criterion
+  min_completeness: 60         # formalization completeness (spec §48)
+  min_normalized_quality: 55   # idea quality over the assessed components
+  min_coverage: 0.6            # share of idea-quality weight actually assessed
+  min_data_availability: 0.4
+  queue_dir: data/backtest_queue   # the Quant Auto OS reads pending/*.json from here

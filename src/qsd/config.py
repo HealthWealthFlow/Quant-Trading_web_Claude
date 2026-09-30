@@ -138,6 +138,16 @@ class Scoring(BaseModel):
         return self
 
 
+class Handoff(BaseModel):
+    """Backtest handoff rule (spec §123)."""
+
+    min_completeness: float = Field(60, ge=0, le=100)
+    min_normalized_quality: float = Field(55, ge=0, le=100)
+    min_coverage: float = Field(0.6, ge=0, le=1)
+    min_data_availability: float = Field(0.4, ge=0, le=1)
+    queue_dir: Path = Path("data/backtest_queue")
+
+
 class Settings(BaseModel):
     paths: Paths = Field(default_factory=Paths)
     asset_classes: AssetClassConfig = Field(default_factory=AssetClassConfig)
@@ -148,6 +158,7 @@ class Settings(BaseModel):
     quality_gate: QualityGate = Field(default_factory=QualityGate)
     discovery: Discovery = Field(default_factory=Discovery)
     scoring: Scoring = Field(default_factory=Scoring)
+    handoff: Handoff = Field(default_factory=Handoff)
 
     def resolve_path(self, p: Path) -> Path:
         return p if p.is_absolute() else REPO_ROOT / p

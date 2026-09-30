@@ -1,5 +1,16 @@
 # Changelog
 
+## M7 — Research package + backtest queue (2026-09-30)
+- `qsd.packaging`: research package (spec §122) with provenance (DOI/URL/hash/root evidence), original /
+  supporting / contradicting sources, known rules with quote + page, unknown rules, parameters, market-regime
+  profile with evidence (§137), data and point-in-time requirements, per-asset downstream checks (§57–§62),
+  concerns, scores with coverage and unscored components, research-completeness PASS/FAIL checklist (§128).
+- Mandatory downstream warning (§124); source claims isolated, marked `validated: false`.
+- Handoff rule (§123, configurable): no hard fail, eligible status, completeness, coverage, quality, data
+  availability, known instrument, non-latency-critical, provenance known. Claims are never a criterion.
+- File queue `<queue_dir>/pending/<strategy_id>.json` (atomic writes) → status SUBMITTED_TO_BACKTEST. No broker path.
+- `schemas/research_package.schema.json` for the Quant Auto OS; `qsd package`, `qsd queue`. 113 tests.
+
 ## M6 — Scoring (2026-09-30)
 - `qsd.scoring` (deterministic, no AI): red-flag language (§54), hard fails (§53: martingale, unlimited averaging,
   look-ahead, survivorship, scam signals, unquantifiable rules), formalization completeness (§48), parameter
