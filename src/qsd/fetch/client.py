@@ -31,6 +31,19 @@ from .ratelimit import MAX_RETRY_AFTER_SECONDS, DomainLimiter, parse_retry_after
 from .urls import InvalidURLError, canonicalize_url, host_of
 
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+
+# Official, documented APIs (spec §11 priority 1). robots.txt governs crawlers; these endpoints are used under their
+# published API terms and rate limits instead. Defined in code (not config) so it cannot be widened by settings.
+OFFICIAL_API_ENDPOINTS = {
+    ("export.arxiv.org", "/api/query"),
+    ("api.openalex.org", "/works"),
+    ("api.crossref.org", "/works"),
+}
+
+
+def is_official_api(url: str) -> bool:
+    parts = httpx.URL(url)
+    return (parts.host, parts.path) in OFFICIAL_API_ENDPOINTS
 MAX_REDIRECTS = 5
 
 
@@ -181,7 +194,7 @@ class PoliteFetcher:
 
     # -- public ---------------------------------------------------------------------------------------
 
-    def fetch(self, url: str) -> FetchResponse:
+    def fetch(self, url: str, official_api: bool = False) -> FetchResponse:
         try:
             canonical = canonicalize_url(url)
         except InvalidURLError as e:
@@ -189,7 +202,10 @@ class PoliteFetcher:
         resp = FetchResponse(url, canonical)
         host = host_of(canonical)
 
-        if not self.robots.allowed(canonical):
+        if official_api and not is_official_api(canonical):
+            resp.access_status, resp.error = AccessStatus.ERROR, "NOT_AN_OFFICIAL_API_ENDPOINT"
+            return resp
+        if not official_api and not self.robots.allowed(canonical):
             resp.access_status = AccessStatus.ROBOTS_DISALLOWED
             return resp
         if self.limiter.is_cooling_down(host):
@@ -198,7 +214,7 @@ class PoliteFetcher:
         if self.max_requests_per_host is not None and self._host_counts.get(host, 0) >= self.max_requests_per_host:
             resp.access_status, resp.error = AccessStatus.NOT_FETCHED, "DOMAIN_BUDGET_EXHAUSTED"
             return resp
-        delay = self.robots.crawl_delay(canonical)
+        delay = None if official_api else self.robots.crawl_delay(canonical)
         if delay:
             self.limiter.delay_next(host, min(delay, 60.0))
 
@@ -261,7 +277,8 @@ class PoliteFetcher:
                 resp.request_class = classify_request(canonical, None, resp.content_type)
                 return resp
 
-            if resp.final_url != canonical and not self.robots.allowed(resp.final_url):
+            if resp.final_url != canonical and not (official_api and is_official_api(resp.final_url)) \
+                    and not self.robots.allowed(resp.final_url):
                 resp.access_status = AccessStatus.ROBOTS_DISALLOWED
                 return resp
 

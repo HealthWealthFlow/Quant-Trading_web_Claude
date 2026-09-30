@@ -30,13 +30,14 @@ src/qsd/db/                research DB: models.py (schema v1), engine/session he
 src/qsd/handlers/          format detection + parsers (text, html, pdf, office, spreadsheet, epub, safe zip)
 src/qsd/security.py        prompt-injection detection, untrusted-content wrapper
 src/qsd/localscan.py       read-only local folder index
+src/qsd/discovery/         connectors (arXiv/OpenAlex/Crossref/RSS), query families, tiers, budgets, runner
 src/qsd/fetch/             polite fetcher: urls, robots, rate limits, access-barrier policy, cache, fetch→parse→store
 src/qsd/cli.py             `qsd` command
 tests/                     pytest suite
 docs/MASTER_SPEC.md        full requirements (§ references)
 ```
 
-Planned packages: `qsd.discovery` (M4),
+Planned packages:
 `qsd.ai` (M5), `qsd.scoring` (M6), `qsd.packaging` (M7), `qsd.web` (M8), `qsd.campaign` (M9).
 
 ## Key technology choices

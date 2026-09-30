@@ -1,5 +1,16 @@
 # Changelog
 
+## M4 — Discovery connectors (2026-09-30)
+- `qsd.discovery`: arXiv (q-fin categories), OpenAlex, Crossref (official APIs; `contact_email` for polite pools),
+  RSS/Atom feeds, user URL lists. Metadata only; absent fields stay UNKNOWN; XML parsed without entity expansion.
+- Official-API allowlist in code (`OFFICIAL_API_ENDPOINTS`): only these skip robots.txt; everything else is checked.
+- Query families per asset class (spec §39), vocabulary expansion (§40), market-regime queries (§137).
+- Cross-connector dedupe by DOI > arXiv id > URL; first known values never overwritten; abstracts, IDs, PDF links
+  and tier basis stored as provenance facts.
+- Deterministic initial tiers from the §24 hierarchy (unknown domains stay untiered).
+- Search memory (normalized query per connector, configurable window) and campaign budgets that stop discovery.
+- CLI: `qsd queries`, `qsd discover`, `qsd feed`. 84 tests (APIs mocked).
+
 ## M3 — Polite fetcher + compliance (2026-09-30)
 - `qsd.fetch`: URL canonicalization (tracking params, fragments, default ports; rejects embedded credentials).
 - robots.txt checked for every URL and redirect target (RFC 9309: 4xx → allow, 5xx/unreachable → disallow);

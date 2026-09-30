@@ -47,3 +47,8 @@ quality_gate:
   high_priority: 85
   promising: 70
   research_further: 55
+
+discovery:
+  contact_email: null       # e.g. you@example.com — OpenAlex/Crossref ask for this ("polite pool")
+  results_per_query: 10
+  search_memory_days: 30    # an identical (connector, query) search is not repeated within this window

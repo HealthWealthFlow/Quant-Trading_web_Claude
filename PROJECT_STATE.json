@@ -27,7 +27,7 @@
     {
       "id": "M4",
       "title": "Discovery connectors (arXiv, OpenAlex/Crossref, RSS, user URLs), query families, search memory, budgets",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "M5",

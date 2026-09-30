@@ -9,11 +9,13 @@ from pathlib import Path
 
 from . import __version__
 from .config import load_settings
-from .db import DB_FILENAME, init_db, make_engine, table_counts
+from .db import DB_FILENAME, init_db, make_engine, session_scope, table_counts
+from .discovery import CONNECTORS, CampaignBudget, FeedConnector, build_queries, run_discovery, store_candidate
 from .fetch import PoliteFetcher, fetch_and_store
 from .handlers import parse_file
 from .localscan import scan_paths
 from .state import load_state, next_milestone, validate_state
+from .taxonomy import AssetClass, MarketRegime
 
 
 def _cmd_config(_: argparse.Namespace) -> int:
@@ -94,6 +96,48 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
     return 0 if resp.ok else 1
 
 
+def _cmd_queries(args: argparse.Namespace) -> int:
+    assets = [AssetClass(a.upper()) for a in args.asset] or None
+    regimes = [MarketRegime(r.upper()) for r in args.regime] or None
+    for q in build_queries(assets, regimes, expand=args.expand, limit=args.limit):
+        print(q)
+    return 0
+
+
+def _cmd_discover(args: argparse.Namespace) -> int:
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    names = list(CONNECTORS) if args.connector == "all" else args.connector.split(",")
+    assets = [AssetClass(a.upper()) for a in args.asset]
+    regimes = [MarketRegime(r.upper()) for r in args.regime]
+    queries = list(args.query) or build_queries(assets or None, regimes or None, limit=args.max_queries)
+    budget = CampaignBudget(s.budgets)
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
+        connectors = [CONNECTORS[n](fetcher, s.discovery.contact_email) for n in names]
+        report = run_discovery(engine, connectors, queries, budget, limit_per_query=args.limit,
+                               memory_days=0 if args.force else s.discovery.search_memory_days)
+    out = {k: v for k, v in report.__dict__.items() if k != "source_ids"}
+    out["budget_spent"] = budget.snapshot()
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+def _cmd_feed(args: argparse.Namespace) -> int:
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
+        items = FeedConnector(fetcher).fetch_feed(args.url)
+    new = 0
+    with session_scope(engine) as sess:
+        for c in items:
+            _src, created = store_candidate(sess, c, None)
+            new += int(created)
+    print(json.dumps({"items": len(items), "new_sources": new}))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="qsd", description="Quant Strategy Discovery & Source Intelligence")
     p.add_argument("--version", action="version", version=f"qsd {__version__}")
@@ -116,6 +160,26 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("url")
     fe.add_argument("--db", help="database path or SQLAlchemy URL")
     fe.set_defaults(func=_cmd_fetch)
+    qu = sub.add_parser("queries", help="show generated research queries (spec §39, §40, §137)")
+    qu.add_argument("--asset", action="append", default=[], help="STOCK, ETF, OPTIONS, FOREX, CRYPTO (repeatable)")
+    qu.add_argument("--regime", action="append", default=[], help="BULLISH, BEARISH, CONSOLIDATION, CRASH")
+    qu.add_argument("--expand", action="store_true", help="add vocabulary variants")
+    qu.add_argument("--limit", type=int, default=50)
+    qu.set_defaults(func=_cmd_queries)
+    di = sub.add_parser("discover", help="search official APIs and store candidate sources (metadata only)")
+    di.add_argument("query", nargs="*", help="free-text queries; default: query families for --asset/--regime")
+    di.add_argument("--connector", default="all", help="arxiv,openalex,crossref or all")
+    di.add_argument("--asset", action="append", default=[])
+    di.add_argument("--regime", action="append", default=[])
+    di.add_argument("--limit", type=int, default=10, help="results per query per connector")
+    di.add_argument("--max-queries", type=int, default=10)
+    di.add_argument("--force", action="store_true", help="ignore search memory")
+    di.add_argument("--db", help="database path or SQLAlchemy URL")
+    di.set_defaults(func=_cmd_discover)
+    fd = sub.add_parser("feed", help="read an RSS/Atom feed and store its items as candidate sources")
+    fd.add_argument("url")
+    fd.add_argument("--db", help="database path or SQLAlchemy URL")
+    fd.set_defaults(func=_cmd_feed)
     return p
 
 

@@ -97,6 +97,13 @@ class QualityGate(BaseModel):
     research_further: int = 55
 
 
+class Discovery(BaseModel):
+    # Sent to OpenAlex/Crossref "polite pool" as the API docs request. Leave empty to omit.
+    contact_email: str | None = None
+    results_per_query: int = Field(10, gt=0, le=100)
+    search_memory_days: int = Field(30, ge=0)  # don't repeat an identical search within this window
+
+
 class Settings(BaseModel):
     paths: Paths = Field(default_factory=Paths)
     asset_classes: AssetClassConfig = Field(default_factory=AssetClassConfig)
@@ -105,6 +112,7 @@ class Settings(BaseModel):
     crawling: Crawling = Field(default_factory=Crawling)
     exploration: Exploration = Field(default_factory=Exploration)
     quality_gate: QualityGate = Field(default_factory=QualityGate)
+    discovery: Discovery = Field(default_factory=Discovery)
 
     def resolve_path(self, p: Path) -> Path:
         return p if p.is_absolute() else REPO_ROOT / p

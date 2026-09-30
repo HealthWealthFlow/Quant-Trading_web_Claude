@@ -14,3 +14,5 @@
 | D10 | 2026-09-30 | Market-regime grouping (Bullish/Bearish/Consolidation/Crash) as its own multi-label dimension with suitability + basis + confidence, separate from position long/short | User requirement §137; avoids mixing market state with trade direction |
 | D11 | 2026-09-30 | HTML via BeautifulSoup+lxml (no trafilatura); EPUB via safe-zip + HTML parser (no EbookLib, AGPL) | Fewer/lighter deps, license safety |
 | D12 | 2026-09-30 | File-creation dates stored as `file_created_date`, never as publication date | Template dates would be fabricated publication dates (spec §1) |
+| D13 | 2026-09-30 | Official APIs (arXiv, OpenAlex, Crossref) use their API terms/rate limits instead of robots.txt, via a code-level endpoint allowlist | robots.txt targets crawlers; API priority per §11; allowlist can't be widened by config |
+| D14 | 2026-09-30 | Work identity: DOI > arXiv id > URL as canonical link | Cross-connector dedupe without a schema change |
