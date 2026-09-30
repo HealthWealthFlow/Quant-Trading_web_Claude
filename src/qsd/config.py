@@ -12,15 +12,14 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
+from .taxonomy import AssetClass
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "config" / "default.yaml"
 LOCAL_CONFIG = REPO_ROOT / "config" / "local.yaml"
 ENV_PREFIX = "QSD_"
 
-ASSET_CLASSES = {
-    "STOCK", "ETF", "OPTIONS", "FOREX", "CRYPTO",
-    "FUTURES", "COMMODITIES", "FIXED_INCOME", "VOLATILITY", "MULTI_ASSET",
-}
+ASSET_CLASSES = {a.value for a in AssetClass}
 
 
 class Paths(BaseModel):

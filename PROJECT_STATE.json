@@ -2,7 +2,7 @@
   "project": "Quant Strategy Discovery & Source Intelligence System",
   "phase": 1,
   "working_branch": "claude/loving-noether-1m40os",
-  "database_version": null,
+  "database_version": 1,
   "milestones": [
     {
       "id": "M0",
@@ -12,7 +12,7 @@
     {
       "id": "M1",
       "title": "Database schema (sources, provenance, ideas, rejections, search memory, AI ledger, errors)",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "M2",
@@ -68,6 +68,6 @@
     "Postgres",
     "Quant Auto OS integration"
   ],
-  "last_commit": null,
+  "last_commit": "see git log",
   "updated_at": "2026-09-30"
 }

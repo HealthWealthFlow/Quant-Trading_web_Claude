@@ -25,12 +25,14 @@ config/default.yaml        defaults (budgets, crawling, AI models); overrides: c
 src/qsd/config.py          typed settings; safety options that may not be disabled are enforced here
 src/qsd/logging_setup.py   JSON-lines logs with secret redaction
 src/qsd/state.py           build-progress state (PROJECT_STATE.json)
+src/qsd/taxonomy.py        shared vocabularies (statuses, reasons, regimes, missing-value markers)
+src/qsd/db/                research DB: models.py (schema v1), engine/session helpers
 src/qsd/cli.py             `qsd` command
 tests/                     pytest suite
 docs/MASTER_SPEC.md        full requirements (§ references)
 ```
 
-Planned packages: `qsd.db` (M1), `qsd.handlers` (M2), `qsd.fetch` (M3), `qsd.discovery` (M4),
+Planned packages: `qsd.handlers` (M2), `qsd.fetch` (M3), `qsd.discovery` (M4),
 `qsd.ai` (M5), `qsd.scoring` (M6), `qsd.packaging` (M7), `qsd.web` (M8), `qsd.campaign` (M9).
 
 ## Key technology choices

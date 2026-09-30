@@ -2,13 +2,16 @@
 
 Milestone status lives in `PROJECT_STATE.json` (run `python -m qsd.cli status`). This file holds finer tasks.
 
-## M1 — Database schema (next)
-- [ ] SQLAlchemy models: sources, fetch_log, source_facts (provenance: page/slide/timestamp/section, method, confidence)
-- [ ] ideas (spec §90 fields, `CLAIMED_*` metrics, UNKNOWN defaults), idea_status history, rejected reasons (§92)
-- [ ] idea_regimes table (§137): idea × regime → suitability, basis, confidence, source_fact_id
-- [ ] search_queries / search memory (§93), ai_calls ledger (§120), errors (§133), campaigns
-- [ ] Schema versioning + `qsd db init` command
-- [ ] Tests: create/read round-trip, UNKNOWN defaults, no secret columns
+## M2 — Source handlers (next)
+- [ ] `SourceHandler` interface (spec §6) + registry; `HandlerResult` with text, structure, links, references,
+      tables, metadata (UNKNOWN when absent), limitations, sha256
+- [ ] Handlers: PlainText/Markdown, HTML (trafilatura), PDF (pdfplumber; encrypted → UNSUPPORTED/limitation),
+      DOCX, PPTX (slides, notes, tables; charts → UNREADABLE_CHART_DATA), CSV/XLSX, EPUB
+- [ ] Location tracking (page / slide / section) for later fact provenance
+- [ ] Untrusted-content boundary wrapper (spec §8)
+- [ ] Safe archive extraction (size/count limits, path traversal, zip bombs) (spec §101)
+- [ ] Local folder scan (read-only) → `local_files` index (spec §111, §112)
+- [ ] Tests incl. failure cases: bad PDF, encrypted PDF, invalid HTML, malicious ZIP, injection text
 
 ## Later milestones — market-regime grouping (§137)
 - [ ] M5: extraction prompt returns regime suitability + basis + confidence; UNKNOWN by default
