@@ -391,3 +391,45 @@ def test_reground_without_stored_extraction_is_skipped(engine):
     sid = _source(engine)
     rg = reground_source(engine, settings(), sid, parse_bytes(make_pdf(PAGES), name="x.pdf"))
     assert rg.skipped_reason == "NO_STORED_EXTRACTION" and not rg.idea_ids
+
+
+# Real text from the first live paper: the PDF extracted with spaces missing between words.
+GLUED_SOURCE = ('Thus, the "Ruleof120"hasappearedintheliterature.Thissuggeststhatforthestockallocationshould '
+                "be120minustheageoftheindividual.Therulehasbeenmodifiedbyothers,fromabout100 to 130, to accommodate "
+                "different economic and investment cycles. Table 1 was formatted to reflect the "
+                "strategicassetallocationsusedinthisstudy.Additionally,theinvestorisassumedtoannually rebalance "
+                "their portfolio to these allocations over a 10-year investment period. "
+                "Annualfeeswereassumedat1%,andwere deducted from monthly returns")
+
+
+def test_quotes_match_source_text_with_missing_spaces():
+    st = ExtractedStrategy.model_validate({"strategy_name": "x", "rules": {
+        "rebalance": {"value": "Annually", "evidence_quote": "the investor is assumed to annually rebalance their "
+                                                             "portfolio to these allocations"},
+        "portfolio_rules": {"value": "Stock allocation = 120 minus age", "evidence_quote":
+                            "This suggests that for the stock allocation should be 120 minus the age of the "
+                            "individual"}},
+        "parameters": [{"name": "annual_fee", "value": "1%",
+                        "evidence_quote": "Annual fees were assumed at 1%, and were deducted from monthly returns"}]})
+    rep = ground_strategy(st, GLUED_SOURCE)
+    assert rep.removed == [] and st.rules["rebalance"].value == "Annually"
+    assert st.rules["portfolio_rules"].value == "Stock allocation = 120 minus age"
+    assert st.parameters[0].value == "1%"
+
+
+def test_space_insensitive_match_still_needs_the_same_characters():
+    st = ExtractedStrategy.model_validate({"strategy_name": "x", "rules": {
+        "rebalance": {"value": "monthly", "evidence_quote": "the investor is assumed to monthly rebalance"},
+        "lookback": {"value": "130", "evidence_quote": "from about 130 to 100"},  # reordered numbers
+        "signal": {"value": "x", "evidence_quote": "be 12 0"}}})  # too short for space-insensitive matching
+    rep = ground_strategy(st, GLUED_SOURCE)
+    assert {r["field"] for r in rep.removed} == {"rebalance", "lookback", "signal"}
+
+
+def test_alignment_rejects_a_changed_word_the_value_depends_on():
+    src = "Additionally, the investor is assumed to annually rebalance their portfolio to these allocations."
+    st = _one_rule("rebalance", "monthly", "the investor is assumed to monthly rebalance their portfolio")
+    rep = ground_strategy(st, src)
+    assert st.rules["rebalance"].value == UNKNOWN and rep.removed[0]["reason"] == "QUOTE_NOT_FOUND"
+    st = _one_rule("rebalance", "annually", "the investor is assumed to annually rebalance the portfolio")
+    assert not ground_strategy(st, src).removed  # "the" vs "their" is a harmless slip

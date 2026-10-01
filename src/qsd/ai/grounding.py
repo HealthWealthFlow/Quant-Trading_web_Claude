@@ -4,7 +4,9 @@ Every non-UNKNOWN value must be backed by a quote that really occurs in the sour
 must occur in the source. Anything that fails is reset to UNKNOWN, recorded (value + quote + reason, so a human can
 check it) and flagged — never kept "just in case".
 
-Quote matching is exact after normalisation (case, whitespace, typographic quotes/dashes, PDF hyphenation). Models
+Quote matching is exact after normalisation (case, whitespace, typographic quotes/dashes, PDF hyphenation). Some
+PDFs extract with spaces missing between words ("Thissuggeststhat..."), so a quote of at least `MIN_COMPACT_CHARS`
+characters also counts when its characters, ignoring all whitespace, occur in the source in the same order. Models
 often copy a sentence with small slips (a dropped "the", changed punctuation), so a quote of at least
 `MIN_FUZZY_WORDS` words is also accepted when almost all of its words occur *in order* in one short stretch of the
 source and every number in the quote occurs in that stretch. The stored quote is then replaced by the source's own
@@ -25,6 +27,7 @@ from .schemas import RULE_FIELDS, Evidenced, ExtractedStrategy, Parameter
 MAX_QUOTE = 300
 INFERRED_CONFIDENCE_CAP = 0.5
 
+MIN_COMPACT_CHARS = 12      # space-insensitive matching only for quotes this long
 MIN_FUZZY_WORDS = 6          # shorter quotes must match exactly
 FUZZY_MIN_SHARE = 0.85       # share of the quote's words that must be found, in order
 FUZZY_MAX_STRETCH = 1.25     # matched stretch may be at most this much longer than the quote (+2 words)
@@ -56,6 +59,11 @@ def _numbers(text: str) -> set[str]:
     return {n.replace(",", ".") for n in _NUM.findall(text or "")}
 
 
+def _compact(text: str) -> str:
+    """Normalised text without any whitespace: PDF extraction can drop or add spaces between words."""
+    return re.sub(r"\s+", "", normalize(text))
+
+
 def _parts(quote: str | None) -> list[str]:
     return [p for p in _ELLIPSIS.split(quote or "") if p.strip()]
 
@@ -65,14 +73,18 @@ class SourceIndex:
 
     def __init__(self, text: str):
         self.norm = normalize(text)
+        self.compact = re.sub(r"\s+", "", self.norm)
         self.words = [w for w in _clean(text).split() if _key(w)]
         self.keys = [_key(w) for w in self.words]
         self.positions: dict[str, list[int]] = {}
         for i, k in enumerate(self.keys):
             self.positions.setdefault(k, []).append(i)
 
-    def find(self, quote: str | None) -> str | None:
-        """Return the source's own wording for `quote`, or None when it does not occur in the source."""
+    def find(self, quote: str | None, value: str = "") -> str | None:
+        """Return the source's own wording for `quote`, or None when it does not occur in the source.
+
+        With approximate matching, a quote word that is missing from the source may not be one the value relies on
+        ("monthly" in the quote and the value, "annually" in the source → rejected)."""
         parts = _parts(quote)
         if not parts:
             return None
@@ -81,13 +93,16 @@ class SourceIndex:
             if normalize(p) in self.norm:
                 found.append(p.strip())
                 continue
-            stretch = self._align(p)
+            if len(_compact(p)) >= MIN_COMPACT_CHARS and _compact(p) in self.compact:
+                found.append(p.strip())  # same characters in the same order; only spacing differs
+                continue
+            stretch = self._align(p, {_key(w) for w in _clean(value).split()})
             if stretch is None:
                 return None
             found.append(stretch)
         return " … ".join(found)
 
-    def _align(self, part: str) -> str | None:
+    def _align(self, part: str, value_keys: set[str] = frozenset()) -> str | None:
         q = [k for k in (_key(w) for w in _clean(part).split()) if k]
         n = len(q)
         if n < MIN_FUZZY_WORDS:
@@ -105,6 +120,9 @@ class SourceIndex:
                       if b.size]
             if not blocks or sum(b.size for b in blocks) / n < FUZZY_MIN_SHARE:
                 continue
+            matched = {b.a + j for b in blocks for j in range(b.size)}
+            if {q[i] for i in range(n) if i not in matched} & value_keys:
+                continue  # the value depends on a word the source does not have here
             a, b = lo + blocks[0].b, lo + blocks[-1].b + blocks[-1].size
             if b - a > n * FUZZY_MAX_STRETCH + 2:
                 continue
@@ -140,7 +158,9 @@ class SourceIndex:
 def quote_in_source(quote: str | None, source_norm: str) -> bool:
     """Exact (normalised) match only; used where no index is built, e.g. abstracts in relation checks."""
     parts = _parts(quote)
-    return bool(parts) and all(normalize(p) in source_norm for p in parts)
+    compact = re.sub(r"\s+", "", source_norm)
+    return bool(parts) and all(normalize(p) in source_norm or
+                               (len(_compact(p)) >= MIN_COMPACT_CHARS and _compact(p) in compact) for p in parts)
 
 
 def numbers_supported(value: str, source_norm: str) -> bool:
@@ -178,8 +198,8 @@ class _Grounder:
             self.report.realigned += 1
             self.report.flags.append(f"QUOTE_REALIGNED:{label}")
 
-    def verbatim(self, quote: str | None, label: str) -> str | None:
-        found = self.idx.find(quote)
+    def verbatim(self, quote: str | None, label: str, value: str = "") -> str | None:
+        found = self.idx.find(quote, value)
         if found is not None:
             self._note_realigned(found, quote, label)
         return found
@@ -189,7 +209,7 @@ class _Grounder:
             f.evidence_quote = None
             return f
         self.report.attempted += 1
-        found = self.idx.find(f.evidence_quote)
+        found = self.idx.find(f.evidence_quote, f.value)
         if found is None:
             self.remove("UNGROUNDED_VALUE_REMOVED", label, f, "QUOTE_NOT_FOUND")
             return Evidenced(value=UNKNOWN)
@@ -231,7 +251,7 @@ def ground_strategy(s: ExtractedStrategy, source_text: str) -> GroundingReport:
     for r in s.regimes:
         if r.basis in (RegimeBasis.SOURCE_STATED, RegimeBasis.SOURCE_EVIDENCE):
             g.report.attempted += 1
-            found = g.verbatim(r.evidence_quote, f"regime:{r.regime.value}")
+            found = g.verbatim(r.evidence_quote, f"regime:{r.regime.value}", r.regime.value.lower())
             if found is None:
                 g.remove("REGIME_EVIDENCE_NOT_FOUND", r.regime.value,
                          Evidenced(value=r.suitability.value, evidence_quote=r.evidence_quote, location=r.location),

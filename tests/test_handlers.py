@@ -181,3 +181,30 @@ def test_parse_file_is_read_only(tmp_path):
     before = (f.stat().st_mtime, f.read_bytes())
     r = parse_file(f)
     assert r.blocks and (f.stat().st_mtime, f.read_bytes()) == before
+
+
+def test_pdf_pages_with_glued_words_are_reread_with_tighter_spacing():
+    from qsd.handlers.pdf import glued_share, page_text
+
+    glued = "Thissuggeststhatforthestockallocationshould be120minustheageoftheindividual."
+    spaced = "This suggests that for the stock allocation should be 120 minus the age of the individual."
+
+    class Page:
+        def __init__(self):
+            self.calls = []
+
+        def extract_text(self, x_tolerance=3):
+            self.calls.append(x_tolerance)
+            return spaced if x_tolerance <= 1.5 else glued
+
+    assert glued_share(glued) > 0.5 and glued_share(spaced) == 0
+    p = Page()
+    assert page_text(p) == spaced and p.calls == [3, 1.5]
+
+    class Normal(Page):
+        def extract_text(self, x_tolerance=3):
+            self.calls.append(x_tolerance)
+            return spaced
+
+    n = Normal()
+    assert page_text(n) == spaced and n.calls == [3]  # well-spaced pages are read once
