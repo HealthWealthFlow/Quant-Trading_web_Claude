@@ -417,9 +417,9 @@ def build_parser() -> argparse.ArgumentParser:
     qq.add_argument("--list", action="store_true", help="list pending packages")
     qq.add_argument("--db", help="database path or SQLAlchemy URL")
     qq.set_defaults(func=_cmd_queue)
-    wb = sub.add_parser("web", help="start the read-only dashboard (default http://127.0.0.1:8765/)")
+    wb = sub.add_parser("web", help="start the read-only dashboard (default http://127.0.0.1:8877/)")
     wb.add_argument("--host", default="127.0.0.1")
-    wb.add_argument("--port", type=int, default=8765)
+    wb.add_argument("--port", type=int, default=8877)
     wb.add_argument("--db", help="database path or SQLAlchemy URL")
     wb.set_defaults(func=_cmd_web)
     ca = sub.add_parser("campaign", help='run a research campaign, e.g. qsd campaign "Find crash-protection ETF '
