@@ -190,7 +190,8 @@ def _cmd_score(args: argparse.Namespace) -> int:
 
 
 def _load_document(engine, settings, source_id: int, fetcher):
-    """Re-read a source's document: local file, or the URL it was fetched from (HTTP cache, no AI)."""
+    """Re-read a source's document: local file, the saved download (HTTP cache), or — only if neither exists —
+    the URL it was fetched from. Never calls the AI."""
     from sqlalchemy import select
 
     from .db.models import FetchLog, Source
@@ -201,9 +202,15 @@ def _load_document(engine, settings, source_id: int, fetcher):
         local, expected = src.local_path, src.content_hash
         url = sess.scalars(select(FetchLog.request_url).where(
             FetchLog.source_id == source_id, FetchLog.status_code == 200).order_by(FetchLog.id.desc())).first()
+    cached = fetcher.cache.get(url) if url and fetcher.cache else None
     if local:
         result = parse_file(local)
+    elif cached:
+        meta, body = cached
+        result = parse_bytes(body, name=meta.get("final_url") or url, content_type=meta.get("content_type"),
+                             base_url=meta.get("final_url") or url)
     elif url:
+        print(f"source {source_id}: no saved copy, downloading again from {url} ...", flush=True)
         resp = fetcher.fetch(url)
         if not resp.ok:
             return None, f"could not re-read {url}: {resp.error or resp.access_status.value}"
@@ -234,7 +241,8 @@ def _cmd_reground(args: argparse.Namespace) -> int:
         return 0
     touched: list[int] = []
     with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
-        for sid in ids:
+        for n, sid in enumerate(ids, 1):
+            print(f"[{n}/{len(ids)}] source {sid} ...", flush=True)
             result, problem = _load_document(engine, s, sid, fetcher)
             if result is None:
                 print(f"source {sid}: skipped ({problem})")
