@@ -54,6 +54,11 @@ def test_reground_cli_rereads_local_file_and_rescores(tmp_path, capsys):
     assert f"source {sid}: idea 1  DISCOVERED -> DISCOVERED  removed values 1 -> 1" in out
     assert "quotes realigned: rebalance" in out and "Re-scored (no AI calls were made)" in out
 
+    assert main(["factcheck", "1", "--db", db]) == 0
+    out = capsys.readouterr().out
+    assert "== stop_rule: exit after 10% loss" in out and "AI quote:      stop loss of 10%" in out
+    assert "exact match:   no" in out and "closest text:" in out
+
     pdf.write_bytes(make_pdf(PAGES[:2]))  # document changed → refuse to re-ground against different text
     assert main(["reground", "--db", db]) == 0
     assert "document changed since extraction" in capsys.readouterr().out

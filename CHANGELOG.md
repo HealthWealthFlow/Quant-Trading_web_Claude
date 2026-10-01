@@ -1,5 +1,10 @@
 # Changelog
 
+## Diagnostics: `qsd factcheck <idea>` (2026-10-01)
+- For each value removed by grounding, prints the AI's quote, whether it matches exactly, the share of its words
+  found in order, the closest passage of the text the AI saw, and any unusual characters there (no AI cost).
+  Added because real quotes from the first live paper were rejected and the cause needs the user's local copy.
+
 ## Windows launcher, own port (2026-10-01)
 - Dashboard default port is now 8877 (was 8765, which can clash with other local dashboards).
 - `dashboard.bat`: double-click to start the dashboard and open the browser; if it is already running, just opens
