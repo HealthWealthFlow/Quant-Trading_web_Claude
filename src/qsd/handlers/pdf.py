@@ -7,6 +7,7 @@ reported as needing OCR (Phase 2) instead of being guessed at.
 from __future__ import annotations
 
 import io
+import re
 
 import pdfplumber
 from pdfminer.pdfdocument import PDFPasswordIncorrect
@@ -26,6 +27,29 @@ from .base import (
 
 MAX_PAGES = 600
 MAX_TABLE_PAGES = 60  # table detection is slow; only the first pages
+# Some PDFs place words with tiny gaps, so the default spacing rule glues them together
+# ("Thissuggeststhatforthestock..."). Such pages are re-read with tighter word-gap tolerances.
+_GLUED = re.compile(r"[A-Za-z]{25,}")
+_TOLERANCES = (1.5, 1.0)
+
+
+def glued_share(text: str) -> float:
+    """Share of letters that sit in implausibly long 'words' (≥ 25 letters)."""
+    letters = sum(c.isalpha() for c in text)
+    return sum(len(m) for m in _GLUED.findall(text)) / letters if letters else 0.0
+
+
+def page_text(page) -> str:
+    text = (page.extract_text() or "").strip()
+    best, best_share = text, glued_share(text)
+    for tol in _TOLERANCES:
+        if best_share < 0.02:
+            break
+        alt = (page.extract_text(x_tolerance=tol) or "").strip()
+        share = glued_share(alt)
+        if alt and share < best_share:
+            best, best_share = alt, share
+    return best
 
 
 def _is_password_error(e: BaseException) -> bool:
@@ -45,7 +69,7 @@ def _is_password_error(e: BaseException) -> bool:
 
 class PDFHandler(SourceHandler):
     name = "PDFHandler"
-    version = "1"
+    version = "2"  # 2: re-read pages with glued words using tighter word-gap tolerances
     formats = ("pdf",)
 
     def extract(self, data: bytes, fmt: str, base_url: str | None = None) -> HandlerResult:
@@ -78,7 +102,7 @@ class PDFHandler(SourceHandler):
             result.add_limitation(TRUNCATED, f"only first {MAX_PAGES} of {len(pages)} pages read")
         empty = 0
         for number, page in enumerate(pages[:MAX_PAGES], 1):
-            text = (page.extract_text() or "").strip()
+            text = page_text(page)
             if text:
                 result.blocks.append(TextBlock(text, Location(page=number)))
             else:

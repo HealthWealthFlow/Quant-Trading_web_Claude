@@ -1,5 +1,16 @@
 # Changelog
 
+## Fix: real quotes rejected because the PDF text lost its spaces (2026-10-01)
+- `qsd factcheck` on the first live paper showed pdfplumber gluing words together
+  ("Thissuggeststhatforthestockallocationshould be120minus..."); the AI quoted the sentences correctly spaced,
+  so grounding rejected 7 true values.
+- PDF handler v2: pages with implausibly long "words" are re-read with tighter word-gap tolerances (1.5, then 1.0)
+  and the better-spaced text is kept.
+- Grounding: quotes of ≥ 12 characters also match when their characters, ignoring whitespace, occur in the source
+  in the same order.
+- Grounding: approximate (word-aligned) matching now rejects a quote whose differing word is one the value relies on
+  (e.g. "monthly" in quote and value, "annually" in the source).
+
 ## Diagnostics: `qsd factcheck <idea>` (2026-10-01)
 - For each value removed by grounding, prints the AI's quote, whether it matches exactly, the share of its words
   found in order, the closest passage of the text the AI saw, and any unusual characters there (no AI cost).
