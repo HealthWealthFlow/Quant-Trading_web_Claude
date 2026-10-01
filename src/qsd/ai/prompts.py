@@ -6,7 +6,7 @@ from ..taxonomy import AssetClass, PositionDirection, TimeHorizon
 from .schemas import CLAIM_FIELDS, RULE_FIELDS
 
 STAGE_A_VERSION = "a1"
-STAGE_B_VERSION = "b2"
+STAGE_B_VERSION = "b3"
 STAGE_C_VERSION = "c1"
 
 SYSTEM = """You are a skeptical institutional quantitative researcher extracting trading-strategy research data.
@@ -39,10 +39,13 @@ Return JSON:
   "worth_deep_read": bool, "confidence": 0.0-1.0}}"""
 
 
-def stage_b_user(title: str, wrapped_text: str) -> str:
+def stage_b_user(title: str, wrapped_text: str, max_strategies: int = 3) -> str:
     rules = ", ".join(RULE_FIELDS)
     claims = ", ".join(CLAIM_FIELDS)
-    return f"""Task: extract every distinct trading strategy described in this source, exactly as the source states it.
+    return f"""Task: extract the trading strategies described in this source, exactly as the source states them.
+Return at most {max_strategies} (the most completely specified). Keep the JSON short: include only rules, parameters,
+claims and regimes the source actually states (omit anything UNKNOWN; missing keys are treated as UNKNOWN), and keep
+each evidence_quote under 30 words.
 Title: {title}
 
 {wrapped_text}
@@ -54,7 +57,7 @@ Return JSON: {{"strategies": [{{
   "asset_classes": [{_ASSETS}], "strategy_families": [str],
   "position_direction": one of {", ".join(p.value for p in PositionDirection)},
   "time_horizon": one of {", ".join(t.value for t in TimeHorizon)},
-  "rules": {{keys from: {rules}; each an E}},
+  "rules": {{only stated keys from: {rules}; each an E}},
   "parameters": [{{"name": str, ...E}}],
   "rationale": E  (why the edge may exist, only as argued by the source),
   "claims": {{keys from: {claims}; each an E with the number exactly as written}},

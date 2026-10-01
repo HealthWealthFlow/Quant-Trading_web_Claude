@@ -18,7 +18,7 @@ ai:
   stage_a_max_chars: 6000         # text sent for cheap triage
   stage_b_max_chars: 40000        # relevant sections only; whole books are never sent (spec §21)
   stage_a_max_tokens: 800
-  stage_b_max_tokens: 6000
+  stage_b_max_tokens: 8000      # DeepSeek's output limit is 8192
   # USD per 1M tokens. A model with no price is NEVER called (budgets can't be enforced without it).
   # Fill DeepSeek/OpenAI prices from the provider's pricing page before first use.
   prices:

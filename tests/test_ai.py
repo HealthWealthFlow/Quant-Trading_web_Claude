@@ -293,7 +293,7 @@ def test_extract_ideas_end_to_end(engine):
         assert idea.status is IdeaStatus.NEEDS_REVIEW  # half of the offered values failed grounding
         assert "UNRELIABLE_EXTRACTION" in idea.red_flags
         assert not any(f.startswith("UNGROUNDED") for f in idea.red_flags)  # reported in idea.grounding instead
-        assert len(idea.grounding["removed"]) == 5 and idea.grounding["prompt_version"] == "b2"
+        assert len(idea.grounding["removed"]) == 5 and idea.grounding["prompt_version"] == "b3"
         regimes = {r.regime: r for r in idea.regimes}
         assert regimes[MarketRegime.BEARISH].suitability is RegimeSuitability.SUITED
         assert regimes[MarketRegime.BEARISH].source_fact_id is not None
@@ -433,3 +433,17 @@ def test_alignment_rejects_a_changed_word_the_value_depends_on():
     assert st.rules["rebalance"].value == UNKNOWN and rep.removed[0]["reason"] == "QUOTE_NOT_FOUND"
     st = _one_rule("rebalance", "annually", "the investor is assumed to annually rebalance the portfolio")
     assert not ground_strategy(st, src).removed  # "the" vs "their" is a harmless slip
+
+
+def test_cut_off_extraction_is_retried_once_for_a_single_strategy(engine):
+    result = parse_bytes(make_pdf(PAGES), name="tsmom.pdf")
+    with session_scope(engine) as s:
+        src = Source(title="TSMOM")
+        s.add(src)
+        s.flush()
+        sid = src.id
+    truncated = json.dumps(STAGE_B)[:300]  # what an answer cut off at the output limit looks like
+    fake = FakeProvider([STAGE_A, truncated, GOOD_B])
+    rep = extract_ideas(AIGateway(engine, settings(), {"fake": fake}), engine, settings(), sid, result)
+    assert len(rep.idea_ids) == 1 and "STAGE_B_RETRIED_SHORT" in rep.flags
+    assert "at most 3" in fake.calls[1]["user"] and "at most 1" in fake.calls[2]["user"]

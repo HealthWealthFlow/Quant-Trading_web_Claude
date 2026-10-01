@@ -1,5 +1,16 @@
 # Changelog
 
+## Fixes after the first guided research run (2026-10-01)
+Run: "support breakout with volume and follow by retracement strategy in bull market", 20 papers → 1 off-topic idea.
+- 6 of 20 AI extractions failed with cut-off JSON. Stage-B prompt b3 asks for at most 3 strategies and omits UNKNOWN
+  fields (they are filled in automatically); output limit 8000 tokens; a cut-off answer is retried once for the
+  single best-specified strategy.
+- Searches now come from the request: full request, a short keyword form (arXiv needs it), each recognised strategy
+  type (+ market direction, + vocabulary variants). Generic families (e.g. earnings drift) only when no type is
+  named. New types: support and resistance, pullback / retracement / Fibonacci, volume confirmation, moving average.
+- Papers whose title and abstract have no market/trading words are not read ("shock breakout in supernovae").
+- Freely downloadable papers (open PDF, arXiv) are read before paywalled ones, then by relevance, then tier.
+
 ## YouTube search, sources.txt, maturity badge, Obsidian notes (2026-10-01)
 Ideas adapted from the user's own Idea Extractor (read-only reference; nothing in it was changed). Not adopted:
 subtitle download via yt-dlp (YouTube's terms), Claude-Vision OCR (Phase 2).

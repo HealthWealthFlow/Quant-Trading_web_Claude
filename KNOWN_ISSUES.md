@@ -16,3 +16,5 @@
 - First live run (2026-10-01, 3 documents) worked end to end; fact-check rules were tuned after it (D24, D25).
 - Request parsing is keyword-based; check `qsd campaign ... --dry-run` output before running.
 - Relation checks read abstracts only; a CONTRADICTS link is a lead for review, not a verdict.
+- Academic sources rarely describe retail technical-analysis setups (e.g. support breakout + volume + pullback);
+  many such papers are paywalled. YouTube (with a key), sources.txt and Phase-2 web search cover them better.
