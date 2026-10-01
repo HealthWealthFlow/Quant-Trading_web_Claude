@@ -12,11 +12,11 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import Engine, select
 
 from ..db import session_scope
-from ..db.models import ErrorRecord, SearchQuery, Source, SourceFact
+from ..db.models import ErrorRecord, SearchQuery, Source, SourceFact, SourceLink
 from ..fetch.urls import InvalidURLError, canonicalize_url
-from ..taxonomy import UNKNOWN, AccessStatus, ExtractionMethod
+from ..taxonomy import UNKNOWN, AccessStatus, ExtractionMethod, SourceRelation
 from .budget import BudgetExhausted, CampaignBudget
-from .connectors import Candidate, Connector, ConnectorError
+from .connectors import Candidate, Connector, ConnectorError, research_links
 from .queries import query_hash
 from .tiering import tier_for_candidate
 
@@ -80,6 +80,30 @@ def store_candidate(s, c: Candidate, campaign_id: int | None) -> tuple[Source | 
     return src, created
 
 
+def store_video_links(s, video: Source, c: Candidate, campaign_id: int | None, limit: int,
+                      budget: CampaignBudget | None = None) -> int:
+    """Follow a video description's research links: each becomes a candidate source (read later like any paper)
+    linked to the video with a CITES edge. Returns the number of new sources."""
+    new = 0
+    for url in research_links(c.abstract, limit):
+        if budget is not None and budget.remaining("urls") < 1:
+            break
+        link = Candidate("youtube_link", url=url, pdf_url=url if url.lower().split("?")[0].endswith(".pdf") else None,
+                         work_type="linked-from-video")
+        src, created = store_candidate(s, link, campaign_id)
+        if src is None or src.id == video.id:
+            continue
+        if created:
+            new += 1
+            if budget is not None:
+                budget.spend("urls")
+        exists = s.scalars(select(SourceLink.id).where(SourceLink.from_source_id == video.id,
+                                                       SourceLink.to_source_id == src.id)).first()
+        if exists is None:
+            s.add(SourceLink(from_source_id=video.id, to_source_id=src.id, relation=SourceRelation.CITES))
+    return new
+
+
 def _add_fact_once(s, source_id: int, fact_type: str, value: str, connector: str) -> None:
     exists = s.scalars(select(SourceFact.id).where(SourceFact.source_id == source_id,
                                                    SourceFact.fact_type == fact_type)).first()
@@ -90,7 +114,7 @@ def _add_fact_once(s, source_id: int, fact_type: str, value: str, connector: str
 
 def run_discovery(engine: Engine, connectors: list[Connector], queries: list[str], budget: CampaignBudget,
                   limit_per_query: int = 10, memory_days: int = 30, campaign_id: int | None = None,
-                  purpose: str = "DISCOVERY", on_search=None) -> DiscoveryReport:
+                  purpose: str = "DISCOVERY", on_search=None, video_links: int = 5) -> DiscoveryReport:
     """`on_search(connector, query, found, new, done, total)` is called after each search (progress display)."""
     report = DiscoveryReport()
     total, done = len(queries) * len(connectors), 0
@@ -131,6 +155,10 @@ def run_discovery(engine: Engine, connectors: list[Connector], queries: list[str
                         else:
                             report.existing_sources += 1
                         report.source_ids.append(src.id)
+                        if c.connector == "youtube" and video_links:
+                            linked = store_video_links(s, src, c, campaign_id, video_links, budget)
+                            new_here += linked
+                            report.new_sources += linked
                     s.add(SearchQuery(campaign_id=campaign_id, connector=conn.name, query_text=query,
                                       query_hash=query_hash(conn.name, query), purpose=purpose,
                                       results_count=len(found), useful_count=new_here))

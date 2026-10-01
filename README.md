@@ -37,6 +37,11 @@ paths:
   local_sources: ["D:\\QuantResearch", "D:\\StrategyPapers"]   # read-only
 ```
 
+Optional: YouTube search. Create a free YouTube Data API v3 key (Google Cloud Console → new project → enable
+"YouTube Data API v3" → Credentials → Create API key), then on Windows `setx YOUTUBE_API_KEY "AIza..."` and open a new
+terminal. YouTube is searched for videos; each video's title and description are read (never the video itself) and
+the papers / code it links to are read like any other source. Free quota: 10,000 units a day; one search uses 100.
+
 A model without a price is never called. All budgets are hard caps checked *before* each AI call.
 
 ## 3. Use it

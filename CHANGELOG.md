@@ -1,5 +1,16 @@
 # Changelog
 
+## YouTube search (2026-10-01)
+- `YouTubeConnector` (YouTube Data API v3, official endpoints `search` + `videos`): title, channel, date, duration
+  and full description. Used by campaigns / `research.bat` when `YOUTUBE_API_KEY` is set
+  (`discovery.youtube_enabled`, `youtube_results_per_query`, `youtube_max_links_per_video`).
+- A video is read through its title + description (retrieval `API_METADATA`); videos are never downloaded and
+  transcripts are not scraped (YouTube's terms). Research links in the description (papers, DOIs, PDFs, code;
+  social / shop / affiliate / sign-up links skipped) become candidate sources linked to the video (CITES) and are
+  read like any paper. Videos are tier 3; follow-up evidence searches use paper sources only.
+- API key sent as `X-Goog-Api-Key` header, never in URLs; credentialed responses are never cached; Google key shape
+  added to log redaction. `qsd discover --connector youtube`.
+
 ## Guided research with live progress (2026-10-01)
 - `research.bat` / `qsd research`: asks what to research, shows how it was understood (assets, market direction,
   strategy types) and the cost caps, then runs everything: search → read → extract + fact-check → score →

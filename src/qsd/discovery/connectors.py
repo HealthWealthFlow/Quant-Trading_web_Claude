@@ -251,4 +251,112 @@ def candidates_from_urls(urls: list[str]) -> list[Candidate]:
     return [Candidate("user_urls", url=u.strip(), work_type="web-page") for u in urls if u.strip()]
 
 
-CONNECTORS = {"arxiv": ArxivConnector, "openalex": OpenAlexConnector, "crossref": CrossrefConnector}
+# ---- YouTube (YouTube Data API v3, metadata only) -------------------------------------------------------
+#
+# Only what the official API returns is used: title, channel, date and the full description (often with links to
+# the paper or code the video is based on). Videos are never downloaded and transcripts are not scraped (YouTube's
+# terms allow neither); a video's description is read as its text, and its research links are followed.
+
+YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>\"')\]]+")
+_SKIP_LINK_HOSTS = ("youtube.com", "youtu.be", "instagram.com", "facebook.com", "tiktok.com", "x.com", "twitter.com",
+                    "t.me", "discord.gg", "discord.com", "patreon.com", "linktr.ee", "bit.ly", "amzn.to",
+                    "amazon.com", "spotify.com", "apple.com", "linkedin.com", "buymeacoffee.com", "ko-fi.com")
+_SKIP_LINK_HINTS = ("affiliate", "ref=", "referral", "promo", "coupon", "discount", "signup", "sign-up", "register",
+                    "join", "subscribe", "course", "checkout", "broker", "bonus")
+
+
+def research_links(text: str | None, limit: int = 5) -> list[str]:
+    """Links in a video description that may lead to the underlying research: papers, DOIs, PDFs, code, blogs.
+    Social, shop, affiliate and sign-up links are skipped."""
+    from ..fetch.urls import host_of
+
+    out: list[str] = []
+    for url in _URL_IN_TEXT.findall(text or ""):
+        url = url.rstrip(".,;:!?")
+        host = host_of(url)
+        low = url.lower()
+        if not host or any(host == h or host.endswith("." + h) for h in _SKIP_LINK_HOSTS):
+            continue
+        if any(hint in low for hint in _SKIP_LINK_HINTS):
+            continue
+        if url not in out:
+            out.append(url)
+        if len(out) >= limit:
+            break
+    return out
+
+
+class YouTubeConnector(Connector):
+    name = "youtube"
+
+    def __init__(self, fetcher: PoliteFetcher, contact_email: str | None = None, api_key: str | None = None,
+                 max_results: int = 10):
+        super().__init__(fetcher, contact_email)
+        self.api_key = api_key
+        self.max_results = max_results  # each search costs 100 of the free 10,000 daily quota units
+
+    def _api(self, path: str, params: dict) -> dict:
+        if not self.api_key:
+            raise ConnectorError("youtube: no API key (set the YOUTUBE_API_KEY environment variable)")
+        # The key travels in a header, never in the URL (URLs are cached and may appear in logs/errors).
+        resp = self.fetcher.fetch(f"{YOUTUBE_API}/{path}?{urlencode(params)}", official_api=True,
+                                  extra_headers={"X-Goog-Api-Key": self.api_key})
+        if not resp.ok or resp.content is None:
+            hint = " (check the key, or the daily quota)" if resp.status_code in (400, 403) else ""
+            raise ConnectorError(f"youtube: {resp.access_status.value} {resp.error or ''}{hint}".strip())
+        return json.loads(resp.content)
+
+    def search(self, query: str, limit: int = 10) -> list[Candidate]:
+        found = self._api("search", {"part": "snippet", "type": "video", "q": query,
+                                     "maxResults": min(limit, self.max_results, 50), "relevanceLanguage": "en",
+                                     "order": "relevance"})
+        ids = [it["id"]["videoId"] for it in found.get("items", []) if (it.get("id") or {}).get("videoId")]
+        if not ids:
+            return []
+        details = self._api("videos", {"part": "snippet,contentDetails", "id": ",".join(ids)})
+        return self.parse(details)
+
+    @staticmethod
+    def parse(data: dict) -> list[Candidate]:
+        out = []
+        for it in data.get("items", []):
+            vid, sn = it.get("id"), it.get("snippet") or {}
+            if not vid:
+                continue
+            c = Candidate("youtube", work_type="video", url=f"https://www.youtube.com/watch?v={vid}")
+            c.title = _clean(sn.get("title")) or UNKNOWN
+            channel = _clean(sn.get("channelTitle"))
+            c.authors = [channel] if channel else []
+            c.venue = f"YouTube: {channel}" if channel else "YouTube"
+            c.publication_date = (sn.get("publishedAt") or "")[:10] or UNKNOWN
+            c.abstract = (sn.get("description") or "").strip() or None  # kept as written (links intact)
+            c.ids["youtube"] = vid
+            duration = (it.get("contentDetails") or {}).get("duration")
+            if duration:
+                c.ids["duration"] = duration
+            out.append(c)
+        return out
+
+
+CONNECTORS = {"arxiv": ArxivConnector, "openalex": OpenAlexConnector, "crossref": CrossrefConnector,
+              "youtube": YouTubeConnector}
+PAPER_CONNECTORS = ("arxiv", "openalex", "crossref")
+
+
+def build_connectors(fetcher: PoliteFetcher, settings, names: list[str] | None = None) -> list[Connector]:
+    """Connectors for a run. YouTube joins only when enabled and YOUTUBE_API_KEY is set."""
+    from ..config import get_secret
+
+    key = get_secret("YOUTUBE_API_KEY")
+    out: list[Connector] = []
+    for name in names or list(CONNECTORS):
+        if name == "youtube":
+            if settings.discovery.youtube_enabled and key:
+                out.append(YouTubeConnector(fetcher, settings.discovery.contact_email, api_key=key,
+                                            max_results=settings.discovery.youtube_results_per_query))
+            elif names:  # explicitly requested but unavailable
+                raise ConnectorError("youtube: set the YOUTUBE_API_KEY environment variable first")
+            continue
+        out.append(CONNECTORS[name](fetcher, settings.discovery.contact_email))
+    return out

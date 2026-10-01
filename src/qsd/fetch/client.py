@@ -38,6 +38,8 @@ OFFICIAL_API_ENDPOINTS = {
     ("export.arxiv.org", "/api/query"),
     ("api.openalex.org", "/works"),
     ("api.crossref.org", "/works"),
+    ("www.googleapis.com", "/youtube/v3/search"),   # YouTube Data API: metadata only (titles, descriptions)
+    ("www.googleapis.com", "/youtube/v3/videos"),
 }
 
 
@@ -200,7 +202,10 @@ class PoliteFetcher:
 
     # -- public ---------------------------------------------------------------------------------------
 
-    def fetch(self, url: str, official_api: bool = False) -> FetchResponse:
+    def fetch(self, url: str, official_api: bool = False, extra_headers: dict[str, str] | None = None
+              ) -> FetchResponse:
+        """`extra_headers` carry credentials such as an API key (never put keys in URLs: URLs are logged and
+        cached). Responses to such requests are never cached."""
         try:
             canonical = canonicalize_url(url)
         except InvalidURLError as e:
@@ -224,8 +229,9 @@ class PoliteFetcher:
         if delay:
             self.limiter.delay_next(host, min(delay, 60.0))
 
-        headers: dict[str, str] = {}
-        cached = self.cache.get(canonical) if self.cache else None
+        headers: dict[str, str] = dict(extra_headers or {})
+        use_cache = self.cache is not None and not extra_headers
+        cached = self.cache.get(canonical) if use_cache else None
         if cached:
             if cached[0].get("etag"):
                 headers["If-None-Match"] = cached[0]["etag"]
@@ -306,7 +312,7 @@ class PoliteFetcher:
 
             resp.content = body
             resp.access_status = barrier or AccessStatus.OK  # PAYWALLED keeps only what was publicly delivered
-            if self.cache and resp.access_status is AccessStatus.OK and r.status_code == 200:
+            if use_cache and resp.access_status is AccessStatus.OK and r.status_code == 200:
                 self.cache.put(canonical, {"etag": r.headers.get("etag"),
                                            "last_modified": r.headers.get("last-modified"),
                                            "content_type": resp.content_type, "final_url": resp.final_url},

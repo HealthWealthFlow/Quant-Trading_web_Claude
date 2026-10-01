@@ -15,7 +15,8 @@ _SENSITIVE_KEYS = (
 )
 _KEY_VALUE = re.compile(rf"(?i)(\"?{_SENSITIVE_KEYS}\"?\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^\s,;&]+)")
 _BEARER = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9\-._~+/]+=*")
-_KNOWN_KEY_SHAPES = re.compile(r"\b(sk-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|AKIA[0-9A-Z]{16})\b")
+_KNOWN_KEY_SHAPES = re.compile(r"\b(sk-[A-Za-z0-9_\-]{16,}|sk-ant-[A-Za-z0-9_\-]{16,}|AKIA[0-9A-Z]{16}|"
+                               r"AIza[0-9A-Za-z_\-]{35})\b")  # last: Google API keys
 REDACTED = "[REDACTED]"
 
 

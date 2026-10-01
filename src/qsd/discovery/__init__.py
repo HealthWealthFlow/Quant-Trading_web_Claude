@@ -9,7 +9,10 @@ from .connectors import (
     CrossrefConnector,
     FeedConnector,
     OpenAlexConnector,
+    YouTubeConnector,
+    build_connectors,
     candidates_from_urls,
+    research_links,
 )
 from .queries import build_queries, expand_query, normalize_query, query_hash
 from .runner import DiscoveryReport, run_discovery, store_candidate
@@ -19,5 +22,5 @@ __all__ = [
     "BudgetExhausted", "CampaignBudget", "CONNECTORS", "ArxivConnector", "Candidate", "ConnectorError",
     "CrossrefConnector", "FeedConnector", "OpenAlexConnector", "candidates_from_urls", "build_queries",
     "expand_query", "normalize_query", "query_hash", "DiscoveryReport", "run_discovery", "store_candidate",
-    "tier_for_candidate", "tier_for_url",
+    "tier_for_candidate", "tier_for_url", "YouTubeConnector", "build_connectors", "research_links",
 ]

@@ -10,7 +10,16 @@ from pathlib import Path
 from . import __version__
 from .config import load_settings
 from .db import DB_FILENAME, init_db, make_engine, session_scope, table_counts
-from .discovery import CONNECTORS, CampaignBudget, FeedConnector, build_queries, run_discovery, store_candidate
+from .discovery import (
+    CONNECTORS,
+    CampaignBudget,
+    ConnectorError,
+    FeedConnector,
+    build_connectors,
+    build_queries,
+    run_discovery,
+    store_candidate,
+)
 from .fetch import PoliteFetcher, fetch_and_store
 from .handlers import parse_file
 from .localscan import scan_paths
@@ -114,9 +123,14 @@ def _cmd_discover(args: argparse.Namespace) -> int:
     queries = list(args.query) or build_queries(assets or None, regimes or None, limit=args.max_queries)
     budget = CampaignBudget(s.budgets)
     with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
-        connectors = [CONNECTORS[n](fetcher, s.discovery.contact_email) for n in names]
+        try:
+            connectors = build_connectors(fetcher, s, None if args.connector == "all" else names)
+        except ConnectorError as e:
+            print(f"Stopped: {e}", file=sys.stderr)
+            return 2
         report = run_discovery(engine, connectors, queries, budget, limit_per_query=args.limit,
-                               memory_days=0 if args.force else s.discovery.search_memory_days)
+                               memory_days=0 if args.force else s.discovery.search_memory_days,
+                               video_links=s.discovery.youtube_max_links_per_video)
     out = {k: v for k, v in report.__dict__.items() if k != "source_ids"}
     out["budget_spent"] = budget.snapshot()
     print(json.dumps(out, indent=2))
@@ -396,7 +410,7 @@ def _campaign_runner(s, engine, fetcher, limits, on_event=_print_event):
     from .campaign import CampaignRunner
 
     gw = AIGateway(engine, s, default_providers())
-    connectors = [CONNECTORS[n](fetcher, s.discovery.contact_email) for n in CONNECTORS]
+    connectors = build_connectors(fetcher, s)
     return CampaignRunner(engine, s, fetcher, gw, connectors, limits, on_event=on_event)
 
 
@@ -488,7 +502,7 @@ def build_parser() -> argparse.ArgumentParser:
     qu.set_defaults(func=_cmd_queries)
     di = sub.add_parser("discover", help="search official APIs and store candidate sources (metadata only)")
     di.add_argument("query", nargs="*", help="free-text queries; default: query families for --asset/--regime")
-    di.add_argument("--connector", default="all", help="arxiv,openalex,crossref or all")
+    di.add_argument("--connector", default="all", help="arxiv,openalex,crossref,youtube or all")
     di.add_argument("--asset", action="append", default=[])
     di.add_argument("--regime", action="append", default=[])
     di.add_argument("--limit", type=int, default=10, help="results per query per connector")

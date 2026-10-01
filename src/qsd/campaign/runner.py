@@ -145,7 +145,7 @@ class CampaignRunner:
         rep = run_discovery(self.engine, self.connectors, queries[:self.limits.max_queries], budget,
                             limit_per_query=self.limits.results_per_query,
                             memory_days=self.settings.discovery.search_memory_days, campaign_id=cid,
-                            on_search=on_search)
+                            on_search=on_search, video_links=self.settings.discovery.youtube_max_links_per_video)
         for e in rep.errors:
             self._error(cid, "discovery", None, "connector", e)
         if rep.stopped_reason:
@@ -173,7 +173,26 @@ class CampaignRunner:
         ranked.sort()
         return [(sid, url) for _t, _r, sid, url in ranked[:self.limits.docs_per_round]]
 
+    def _video_description(self, source_id: int):
+        """A YouTube video is read through its API metadata: title + description (never downloaded or scraped)."""
+        with session_scope(self.engine) as s:
+            src = s.get(Source, source_id)
+            facts = {f.fact_type: f.value for f in s.scalars(select(SourceFact).where(
+                SourceFact.source_id == source_id))}
+            if "ID_YOUTUBE" not in facts:
+                return None, False
+            text = f"{src.title}\n\nChannel: {src.author}\n\n{facts.get('ABSTRACT', '')}".strip()
+            s.add(FetchLog(source_id=source_id, page_url=src.url, request_url=src.url, status_code=200,
+                           content_type="text/plain", retrieval_method="API_METADATA"))
+            src.retrieved_at, src.access_status = datetime.now(UTC), AccessStatus.OK
+            result = parse_bytes(text.encode("utf-8"), name="youtube-description.txt", content_type="text/plain")
+            src.format = "youtube-description"
+            return result, True
+
     def _fetch_into(self, cid: int, source_id: int, url: str):
+        video, is_video = self._video_description(source_id)
+        if is_video:
+            return video
         resp = self.fetcher.fetch(url)
         with session_scope(self.engine) as s:
             src = s.get(Source, source_id)
@@ -202,8 +221,9 @@ class CampaignRunner:
                                     f"{name} post publication decay"]),
                  ("RECENT", [f"{name} {year - 2}", f"{name} {year - 1}"])]
         counts = {"REPLICATES": 0, "SUPPORTS": 0, "CONTRADICTS": 0, "UNRELATED": 0, "UNCLEAR": 0}
+        papers_only = [c for c in self.connectors if c.name != "youtube"]  # evidence comes from papers
         for purpose, queries in plans:
-            rep = run_discovery(self.engine, self.connectors, queries, budget, limit_per_query=5,
+            rep = run_discovery(self.engine, papers_only, queries, budget, limit_per_query=5,
                                 memory_days=self.settings.discovery.search_memory_days, campaign_id=cid,
                                 purpose=purpose)
             if rep.stopped_reason:
@@ -279,8 +299,9 @@ class CampaignRunner:
                 for n, (sid, url) in enumerate(chosen, 1):
                     budget.spend("documents")
                     with session_scope(self.engine) as s:
-                        title = s.get(Source, sid).title
-                    self._note(cid, budget, "read", f"[{n}/{len(chosen)}] {title[:160]}", current_title=title[:300])
+                        src = s.get(Source, sid)
+                        title = src.title + (" (YouTube video)" if "youtube.com/watch" in (src.url or "") else "")
+                    self._note(cid, budget, "read", f"[{n}/{len(chosen)}] {title[:180]}", current_title=title[:300])
                     result = self._fetch_into(cid, sid, url)
                     done_docs.add(sid)
                     report.documents_processed += 1

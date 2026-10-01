@@ -1,7 +1,9 @@
 # Known issues
 
 - No general web search provider yet (by decision D5). Add a Brave/Tavily adapter later if a key is provided.
-- Video, audio, YouTube, community sources and DevTools inspection are Phase 2.
+- YouTube is searched by metadata only (title, description, linked papers/code); spoken content of videos is not read.
+  Local video/audio files and podcasts (local Whisper transcription), community sources and DevTools inspection are
+  Phase 2.
 - The Claude Code cloud build container blocks many research hosts (e.g. arxiv.org) via its network policy.
   The code is tested with mocked HTTP; run live fetching on your PC/server, or widen the cloud environment's
   network access if you want live tests in the cloud.

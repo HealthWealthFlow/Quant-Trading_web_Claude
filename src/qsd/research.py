@@ -78,6 +78,17 @@ def describe(spec) -> list[str]:
     return lines
 
 
+def sources_line(settings: Settings) -> str:
+    from .config import get_secret
+
+    base = "arXiv, OpenAlex, Crossref (research papers)"
+    if not settings.discovery.youtube_enabled:
+        return base + "; YouTube off in config"
+    if not get_secret("YOUTUBE_API_KEY"):
+        return base + "; YouTube off (no YOUTUBE_API_KEY set)"
+    return base + " + YouTube (titles, descriptions and the papers they link to)"
+
+
 def cost_per_paper(engine: Engine) -> float | None:
     """Average AI cost of reading one paper so far (for an honest estimate before starting)."""
     with session_scope(engine) as s:
@@ -156,6 +167,7 @@ def run_wizard(engine: Engine, settings: Settings, make_runner: RunnerFactory, *
         out("I understood:")
         for line in describe(spec):
             out(line)
+        out(f"  Sources:           {sources_line(settings)}")
         docs = _ask_int(ask, f"How many papers should I read in this round? [{DEFAULT_DOCS}]: ", DEFAULT_DOCS)
         per = cost_per_paper(engine)
         estimate = f"about ${per * docs:.2f} (based on papers read so far)" if per else "no estimate yet"

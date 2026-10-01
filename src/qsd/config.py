@@ -114,6 +114,10 @@ class Discovery(BaseModel):
     contact_email: str | None = None
     results_per_query: int = Field(10, gt=0, le=100)
     search_memory_days: int = Field(30, ge=0)  # don't repeat an identical search within this window
+    # YouTube Data API (metadata only: titles, descriptions, links). Used when YOUTUBE_API_KEY is set.
+    youtube_enabled: bool = True
+    youtube_results_per_query: int = Field(10, gt=0, le=50)
+    youtube_max_links_per_video: int = Field(5, ge=0, le=20)  # research links followed from a description
 
 
 DEFAULT_IDEA_WEIGHTS = {
