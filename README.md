@@ -41,6 +41,13 @@ A model without a price is never called. All budgets are hard caps checked *befo
 
 ## 3. Use it
 
+**Easiest (Windows):** double-click `research.bat`, type what to research (e.g. *Find crash-protection ETF
+strategies*), confirm, and watch. It searches, reads papers, extracts and fact-checks strategies, scores them, runs
+follow-up searches, sends eligible ideas to the backtest queue and shows a summary — with progress in the window and
+on the live monitor (http://127.0.0.1:8877/live). Same thing from a terminal: `qsd research`.
+
+Step by step:
+
 ```bash
 qsd campaign "Find crash-protection ETF strategies" --dry-run   # see how the request is understood
 qsd campaign "Find crash-protection ETF strategies"             # search → fetch → extract → score → deepen

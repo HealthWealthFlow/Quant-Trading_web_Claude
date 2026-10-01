@@ -167,6 +167,31 @@ def create_app(engine: Engine, settings: Settings) -> FastAPI:
                 q = q.where(ErrorRecord.state.in_([ErrorState.UNRESOLVED, ErrorState.RETRYING]))
             return render("errors.html", errors=s.scalars(q).all(), show_all=all)
 
+    @app.get("/live", response_class=HTMLResponse)
+    def live(id: int | None = Query(None)):  # noqa: A002
+        with session_scope(engine) as s:
+            c = s.get(Campaign, id) if id else s.scalars(select(Campaign).order_by(Campaign.id.desc())).first()
+            others = s.scalars(select(Campaign).where(Campaign.id != (c.id if c else 0))
+                               .order_by(Campaign.id.desc()).limit(10)).all()
+            if c is None:
+                return render("live.html", c=None, others=others, running=False)
+            p = dict((c.state or {}).get("progress") or {})
+            ideas = s.scalars(select(Idea).where(Idea.campaign_id == c.id)
+                              .order_by(Idea.research_priority_score.desc().nulls_last(), Idea.id)).all()
+            sources_found = s.execute(select(func.count()).select_from(Source)
+                                      .where(Source.campaign_id == c.id)).scalar_one()
+            running = c.status in (CampaignStatus.RUNNING, CampaignStatus.PLANNED)
+            stale = None
+            if running and p.get("updated_at"):
+                age = datetime.now(UTC) - datetime.fromisoformat(p["updated_at"])
+                stale = int(age.total_seconds() // 60) if age.total_seconds() > 600 else None
+            total = p.get("papers_total") or 0
+            pct = round(100 * (p.get("papers_done") or 0) / total) if total else 0
+            promising = sum(i.status in (IdeaStatus.PROMISING, IdeaStatus.SUBMITTED_TO_BACKTEST) for i in ideas)
+            return render("live.html", c=c, p=p, ideas=ideas, events=list(reversed(p.get("events") or [])),
+                          sources_found=sources_found, running=running, stale=stale, pct=pct, promising=promising,
+                          cap=settings.budgets.max_ai_cost_usd_per_campaign, others=others)
+
     @app.get("/healthz")
     def healthz(request: Request):
         return {"ok": True}

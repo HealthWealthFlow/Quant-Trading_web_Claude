@@ -90,19 +90,26 @@ def _add_fact_once(s, source_id: int, fact_type: str, value: str, connector: str
 
 def run_discovery(engine: Engine, connectors: list[Connector], queries: list[str], budget: CampaignBudget,
                   limit_per_query: int = 10, memory_days: int = 30, campaign_id: int | None = None,
-                  purpose: str = "DISCOVERY") -> DiscoveryReport:
+                  purpose: str = "DISCOVERY", on_search=None) -> DiscoveryReport:
+    """`on_search(connector, query, found, new, done, total)` is called after each search (progress display)."""
     report = DiscoveryReport()
+    total, done = len(queries) * len(connectors), 0
     try:
         for query in queries:
             for conn in connectors:
+                done += 1
                 if recently_searched(engine, conn.name, query, memory_days):
                     report.queries_skipped_memory += 1
+                    if on_search:
+                        on_search(conn.name, query, None, 0, done, total)
                     continue
                 budget.spend("search_requests")
                 try:
                     found = conn.search(query, limit=limit_per_query)
                 except ConnectorError as e:
                     report.errors.append(str(e))
+                    if on_search:
+                        on_search(conn.name, query, -1, 0, done, total)
                     with session_scope(engine) as s:
                         s.add(ErrorRecord(campaign_id=campaign_id, stage="discovery", source_ref=query,
                                           handler=conn.name, error=str(e)[:2000]))
@@ -127,6 +134,8 @@ def run_discovery(engine: Engine, connectors: list[Connector], queries: list[str
                     s.add(SearchQuery(campaign_id=campaign_id, connector=conn.name, query_text=query,
                                       query_hash=query_hash(conn.name, query), purpose=purpose,
                                       results_count=len(found), useful_count=new_here))
+                if on_search:
+                    on_search(conn.name, query, len(found), new_here, done, total)
     except BudgetExhausted as e:
         report.stopped_reason = str(e)
     report.source_ids = list(dict.fromkeys(report.source_ids))

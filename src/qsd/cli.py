@@ -378,10 +378,41 @@ def _cmd_web(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_campaign(args: argparse.Namespace) -> int:
-    from .ai import AIGateway, default_providers
-    from .campaign import CampaignLimits, CampaignRunner, parse_request
+def _safe_console() -> None:
+    """Never crash on a character the Windows console code page can't show (paper titles are untrusted text)."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
+
+def _print_event(phase: str, message: str) -> None:
+    print(message if message.startswith("    ") else f"[{phase}] {message}", flush=True)
+
+
+def _campaign_runner(s, engine, fetcher, limits, on_event=_print_event):
+    from .ai import AIGateway, default_providers
+    from .campaign import CampaignRunner
+
+    gw = AIGateway(engine, s, default_providers())
+    connectors = [CONNECTORS[n](fetcher, s.discovery.contact_email) for n in CONNECTORS]
+    return CampaignRunner(engine, s, fetcher, gw, connectors, limits, on_event=on_event)
+
+
+def _run_with_interrupt(runner, cid: int):
+    try:
+        return runner.run(cid)
+    except KeyboardInterrupt:
+        runner.mark_interrupted(cid)
+        print(f"\nStopped by you. Nothing is lost; continue later with: qsd campaign --resume {cid}")
+        return None
+
+
+def _cmd_campaign(args: argparse.Namespace) -> int:
+    from .campaign import CampaignLimits, parse_request
+
+    _safe_console()
     if args.dry_run:
         print(json.dumps(parse_request(args.request or "").to_dict(), indent=2))
         return 0
@@ -391,17 +422,40 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     limits = CampaignLimits(max_queries=args.max_queries, docs_per_round=args.docs, deepen_top_ideas=args.deepen)
     with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache",
                        max_requests_per_host=s.budgets.max_sources_per_domain) as fetcher:
-        gw = AIGateway(engine, s, default_providers())
-        connectors = [CONNECTORS[n](fetcher, s.discovery.contact_email) for n in CONNECTORS]
-        runner = CampaignRunner(engine, s, fetcher, gw, connectors, limits)
+        runner = _campaign_runner(s, engine, fetcher, limits)
         cid = args.resume or runner.create(args.request)
         if not args.resume:
             with session_scope(engine) as sess:
                 from .db.models import Campaign
                 print("Parsed request:", json.dumps(sess.get(Campaign, cid).spec))
-        report = runner.run(cid)
+        report = _run_with_interrupt(runner, cid)
+    if report is None:
+        return 130
     print(json.dumps(report.__dict__, indent=2, default=str))
     return 0
+
+
+def _cmd_research(args: argparse.Namespace) -> int:
+    from contextlib import contextmanager
+
+    from .research import run_wizard
+
+    _safe_console()
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+
+    @contextmanager
+    def make_runner(limits):
+        with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache",
+                           max_requests_per_host=s.budgets.max_sources_per_domain) as fetcher:
+            yield _campaign_runner(s, engine, fetcher, limits)
+
+    try:
+        return run_wizard(engine, s, make_runner, port=args.port)
+    except (KeyboardInterrupt, EOFError):
+        print("\nClosed.")
+        return 130
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -481,6 +535,11 @@ def build_parser() -> argparse.ArgumentParser:
     wb.add_argument("--port", type=int, default=8877)
     wb.add_argument("--db", help="database path or SQLAlchemy URL")
     wb.set_defaults(func=_cmd_web)
+    rs = sub.add_parser("research", help="guided research: describe what to find, then everything runs with a live "
+                                         "monitor (used by research.bat)")
+    rs.add_argument("--port", type=int, default=8877, help="dashboard / live monitor port")
+    rs.add_argument("--db", help="database path or SQLAlchemy URL")
+    rs.set_defaults(func=_cmd_research)
     ca = sub.add_parser("campaign", help='run a research campaign, e.g. qsd campaign "Find crash-protection ETF '
                                          'strategies"')
     ca.add_argument("request", nargs="?", help="what to research, in plain English")

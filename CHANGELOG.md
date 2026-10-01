@@ -1,5 +1,17 @@
 # Changelog
 
+## Guided research with live progress (2026-10-01)
+- `research.bat` / `qsd research`: asks what to research, shows how it was understood (assets, market direction,
+  strategy types) and the cost caps, then runs everything: search → read → extract + fact-check → score →
+  follow-up searches → backtest queue → summary; offers another round of papers for the same research.
+- Live monitor `/live` on the dashboard (auto-refresh every 3 s while running): searches, papers found / read with
+  progress bar, strategies found with status, quality and market direction, AI cost vs cap, activity log.
+  `qsd research` starts the dashboard itself when it is not already running.
+- Campaigns report progress (`on_event`) and store the last 80 steps in `campaigns.state.progress`;
+  `qsd campaign` now prints them too. Ctrl+C marks the campaign STOPPED with a resume hint.
+- SQLite busy timeout so the dashboard can read while a campaign writes. Console output never fails on unusual
+  characters in paper titles.
+
 ## Fix: real quotes rejected because the PDF text lost its spaces (2026-10-01)
 - `qsd factcheck` on the first live paper showed pdfplumber gluing words together
   ("Thissuggeststhatforthestockallocationshould be120minus..."); the AI quoted the sentences correctly spaced,

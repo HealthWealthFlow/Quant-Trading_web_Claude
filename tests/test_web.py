@@ -102,3 +102,30 @@ def test_idea_page_lists_values_removed_by_fact_check(client):
     assert "Removed by fact-check" in html and "1 of 8 values" in html
     assert "stop_rule" in html and "10% stop" in html and "quote not found" in html and "p.4" in html
     assert "small wording fixes" in html and EVIL not in html
+
+
+def test_live_monitor(tmp_path):
+    from qsd.db.models import Campaign
+    from qsd.taxonomy import CampaignStatus
+
+    e = make_engine(tmp_path / "live.sqlite")
+    init_db(e)
+    c = TestClient(create_app(e, S))
+    assert "No research has been started yet" in c.get("/live").text
+    with session_scope(e) as s:
+        camp = Campaign(request_text=f"crash ETF {EVIL}", status=CampaignStatus.RUNNING, state={"progress": {
+            "phase": "read", "current": f"[2/10] Paper {EVIL}", "papers_done": 2, "papers_total": 10,
+            "searches_done": 6, "searches_total": 24, "ai_cost_usd": 0.05, "updated_at": "2999-01-01T00:00:00+00:00",
+            "events": [{"t": "10:00:01", "phase": "search", "msg": "openalex: 10 results"},
+                       {"t": "10:00:09", "phase": "read", "msg": "[2/10] Paper"}]}})
+        s.add(camp)
+        s.flush()
+        s.add(new_idea(campaign_id=camp.id, strategy_name="Trend timing"))
+        cid = camp.id
+    html = c.get("/live").text
+    assert 'http-equiv="refresh"' in html and "2 / 10" in html and "6 / 24" in html and "Trend timing" in html
+    assert "width:20%" in html and EVIL not in html and "&lt;script&gt;" in html
+    assert html.index("10:00:09") < html.index("10:00:01")  # newest first
+    with session_scope(e) as s:
+        s.get(Campaign, cid).status = CampaignStatus.COMPLETED
+    assert 'http-equiv="refresh"' not in c.get(f"/live?id={cid}").text  # stops refreshing when finished
