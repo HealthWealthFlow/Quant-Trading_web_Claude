@@ -262,6 +262,60 @@ def _cmd_reground(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_factcheck(args: argparse.Namespace) -> int:
+    """Explain why quotes were rejected: closest passage in the source text and the share of words found there."""
+    import unicodedata
+
+    from sqlalchemy import select
+
+    from .ai.grounding import SourceIndex, normalize
+    from .ai.sections import select_relevant
+    from .db.models import Idea, SourceFact
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    with session_scope(engine) as sess:
+        idea = sess.get(Idea, args.idea)
+        if idea is None:
+            print(f"No idea {args.idea}.", file=sys.stderr)
+            return 2
+        sid, removed = idea.primary_source_id, list((idea.grounding or {}).get("removed", []))
+        abstract = sess.scalars(select(SourceFact.value).where(SourceFact.source_id == sid,
+                                                               SourceFact.fact_type == "ABSTRACT")).first()
+    if not removed:
+        print(f"Idea {args.idea}: nothing removed (or extracted before this was recorded; run `qsd reground`).")
+        return 0
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
+        result, problem = _load_document(engine, s, sid, fetcher)
+    if result is None:
+        print(f"source {sid}: {problem}", file=sys.stderr)
+        return 2
+    sel = select_relevant(result, s.ai.stage_b_max_chars)
+    text = sel.text + ("\n" + abstract if abstract else "")
+    idx = SourceIndex(text)
+    print(f"Idea {args.idea}, source {sid}: text the AI saw = {len(sel.text)} characters "
+          f"({'truncated' if sel.truncated else 'complete'}), {len(idx.words)} words.\n")
+    for r in removed:
+        quote = r.get("quote") or ""
+        print(f"== {r['field']}: {r['value'][:120]}")
+        print(f"   reason: {r['reason']}")
+        if not quote:
+            print("   (no quote given by the AI)\n")
+            continue
+        exact = normalize(quote) in idx.norm
+        share, stretch = idx.closest(quote)
+        odd = sorted({f"U+{ord(c):04X} {unicodedata.name(c, '?')}" for c in stretch
+                      if ord(c) > 126 or (ord(c) < 32 and c not in "\n\t")})
+        print(f"   AI quote:      {quote[:300]}")
+        print(f"   exact match:   {'yes' if exact else 'no'};  words found in order: {share:.0%}")
+        print(f"   closest text:  {stretch[:600]}")
+        if odd:
+            print(f"   unusual characters there: {', '.join(odd[:10])}")
+        print()
+    return 0
+
+
 def _cmd_package(args: argparse.Namespace) -> int:
     from .packaging import build_package, export_schema
 
@@ -406,6 +460,11 @@ def build_parser() -> argparse.ArgumentParser:
     sco.add_argument("--idea", type=int, help="score one idea (default: all)")
     sco.add_argument("--db", help="database path or SQLAlchemy URL")
     sco.set_defaults(func=_cmd_score)
+    fc = sub.add_parser("factcheck", help="explain why an idea's values were removed: closest source passage per "
+                                          "quote (no AI cost)")
+    fc.add_argument("idea", type=int)
+    fc.add_argument("--db", help="database path or SQLAlchemy URL")
+    fc.set_defaults(func=_cmd_factcheck)
     pk = sub.add_parser("package", help="print an idea's research package (JSON) or export the package schema")
     pk.add_argument("idea", nargs="?", type=int)
     pk.add_argument("--schema", help="write the package JSON Schema to this path")

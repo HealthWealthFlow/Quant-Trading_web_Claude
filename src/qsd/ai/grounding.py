@@ -114,6 +114,28 @@ class SourceIndex:
             return stretch
         return None
 
+    def closest(self, quote: str, context_words: int = 8) -> tuple[float, str]:
+        """Diagnostics only: the best-matching stretch for `quote` and the share of its words found there, in
+        order, with no thresholds applied. Used to explain why a quote was rejected."""
+        q = [k for k in (_key(w) for w in _clean(quote).split()) if k]
+        if not q or not self.keys:
+            return 0.0, ""
+        votes: Counter[int] = Counter()
+        for i, k in enumerate(q):
+            for p in self.positions.get(k, ()):
+                votes[p - i] += 1
+        best = (0.0, "")
+        for start, _ in votes.most_common(5):
+            lo, hi = max(0, start - 2 * len(q)), min(len(self.keys), start + 3 * len(q))
+            blocks = [b for b in SequenceMatcher(None, q, self.keys[lo:hi], autojunk=False).get_matching_blocks()
+                      if b.size]
+            share = sum(b.size for b in blocks) / len(q)
+            if blocks and share > best[0]:
+                a, b = lo + blocks[0].b, lo + blocks[-1].b + blocks[-1].size
+                a, b = max(0, a - context_words), min(len(self.words), b + context_words)
+                best = (share, " ".join(self.words[a:b]))
+        return best
+
 
 def quote_in_source(quote: str | None, source_norm: str) -> bool:
     """Exact (normalised) match only; used where no index is built, e.g. abstracts in relation checks."""
