@@ -51,6 +51,14 @@ strategies*), confirm, and watch. It searches, reads papers, extracts and fact-c
 follow-up searches, sends eligible ideas to the backtest queue and shows a summary — with progress in the window and
 on the live monitor (http://127.0.0.1:8877/live). Same thing from a terminal: `qsd research`.
 
+**Your own list:** copy `sources.example.txt` to `sources.txt`, list YouTube videos / channels (`| n:25`),
+links, files and folders (`| My title` overrides a title), then type **S** in `research.bat` (or run `qsd sources`).
+Items read before are skipped.
+
+**Obsidian notes:** set `export: {notes_dir: "D:\\Quant Trading\\TradingVault"}` in `config/local.yaml`; each research
+run then writes one Markdown note per strategy into `TradingVault\QSD Strategies` (or run `qsd notes`). Notes QSD
+did not write are never overwritten.
+
 Step by step:
 
 ```bash

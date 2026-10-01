@@ -1,0 +1,18 @@
+# Copy this file to sources.txt (same folder) and list what you want read, one per line.
+# Then double-click research.bat and type S  (or run: qsd sources).
+# Items read before are skipped automatically; changed local files are read again.
+#
+# YouTube video (title + description + the papers/code it links to; needs YOUTUBE_API_KEY):
+# https://www.youtube.com/watch?v=XXXXXXXXXXX
+#
+# YouTube channel: its newest videos not read before (default 10; n:25 = 25):
+# https://www.youtube.com/@SomeChannel | n:25
+#
+# A paper, PDF or web page:
+# https://arxiv.org/abs/2101.00001
+#
+# A file on this PC (PDF, EPUB, DOCX, PPTX, XLSX/CSV, HTML, TXT/MD); text after | = your own title:
+# D:\Books\some_book.epub | My Custom Title
+#
+# A folder: every readable file inside, including sub-folders (max 200):
+# D:\Quant Trading\Papers

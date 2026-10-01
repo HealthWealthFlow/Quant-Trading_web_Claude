@@ -99,6 +99,17 @@ def formalization_completeness(idea) -> tuple[float, list[str]]:
     return float(score), [k for k, ok in present.items() if not ok]
 
 
+MATURITY_LEVELS = ((80, "BACKTEST-READY"), (60, "TRADEABLE"), (35, "PARTIAL"), (0, "CONCEPT"))
+
+
+def maturity(completeness: float | None) -> str:
+    """How far the rules are written down (formalization completeness): CONCEPT → PARTIAL → TRADEABLE →
+    BACKTEST-READY. Says nothing about whether the strategy works."""
+    if completeness is None:
+        return "UNKNOWN"
+    return next(label for floor, label in MATURITY_LEVELS if completeness >= floor)
+
+
 def completeness_band(score: float) -> str:
     return "ALMOST_CODE_READY" if score >= 90 else "SOME_MISSING" if score >= 60 else \
         "CONCEPT_LEVEL" if score >= 30 else "INSUFFICIENT"

@@ -152,6 +152,14 @@ class Handoff(BaseModel):
     queue_dir: Path = Path("data/backtest_queue")
 
 
+class Export(BaseModel):
+    """Optional Markdown notes (e.g. an Obsidian vault). Files written by QSD carry `qsd_id` in their front matter;
+    any other file is never overwritten."""
+
+    notes_dir: Path | None = None
+    notes_subfolder: str = "QSD Strategies"
+
+
 class Settings(BaseModel):
     paths: Paths = Field(default_factory=Paths)
     asset_classes: AssetClassConfig = Field(default_factory=AssetClassConfig)
@@ -163,6 +171,7 @@ class Settings(BaseModel):
     discovery: Discovery = Field(default_factory=Discovery)
     scoring: Scoring = Field(default_factory=Scoring)
     handoff: Handoff = Field(default_factory=Handoff)
+    export: Export = Field(default_factory=Export)
 
     def resolve_path(self, p: Path) -> Path:
         return p if p.is_absolute() else REPO_ROOT / p

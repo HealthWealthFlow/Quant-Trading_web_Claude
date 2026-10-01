@@ -40,6 +40,8 @@ OFFICIAL_API_ENDPOINTS = {
     ("api.crossref.org", "/works"),
     ("www.googleapis.com", "/youtube/v3/search"),   # YouTube Data API: metadata only (titles, descriptions)
     ("www.googleapis.com", "/youtube/v3/videos"),
+    ("www.googleapis.com", "/youtube/v3/channels"),
+    ("www.googleapis.com", "/youtube/v3/playlistItems"),
 }
 
 

@@ -93,3 +93,7 @@ handoff:                       # backtest handoff rule (spec §123); claimed pro
   min_coverage: 0.6            # share of idea-quality weight actually assessed
   min_data_availability: 0.4
   queue_dir: data/backtest_queue   # the Quant Auto OS reads pending/*.json from here
+
+export:
+  notes_dir: null               # e.g. "D:\\Quant Trading\\TradingVault" - Markdown notes per strategy (Obsidian)
+  notes_subfolder: QSD Strategies   # notes go here; files QSD did not write are never overwritten

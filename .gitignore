@@ -17,3 +17,5 @@ logs/
 *.db
 config/local.yaml
 *.whl
+# Your own reading list (copy from sources.example.txt)
+sources.txt

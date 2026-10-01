@@ -314,8 +314,60 @@ class YouTubeConnector(Connector):
         ids = [it["id"]["videoId"] for it in found.get("items", []) if (it.get("id") or {}).get("videoId")]
         if not ids:
             return []
-        details = self._api("videos", {"part": "snippet,contentDetails", "id": ",".join(ids)})
-        return self.parse(details)
+        return self.videos(ids)
+
+    def videos(self, ids: list[str]) -> list[Candidate]:
+        """Metadata for known video ids (1 quota unit per 50 videos)."""
+        out: list[Candidate] = []
+        for i in range(0, len(ids), 50):
+            out += self.parse(self._api("videos", {"part": "snippet,contentDetails", "id": ",".join(ids[i:i + 50])}))
+        return out
+
+    def channel_video_ids(self, channel: str, n: int, skip: set[str] = frozenset(), max_scan: int = 1000
+                          ) -> tuple[str, list[str]]:
+        """Newest uploads of a channel that are not in `skip`: (channel title, up to n video ids).
+
+        `channel` is '@handle', 'channel/UC…', 'user/name' or 'c/name'. Uses the channel's uploads playlist
+        (1 quota unit per 50 videos), never the website."""
+        kind, _, value = channel.partition("/") if "/" in channel else ("handle", "", channel)
+        params = {"part": "snippet,contentDetails"}
+        if kind == "handle":
+            params["forHandle"] = value
+        elif kind == "channel":
+            params["id"] = value
+        elif kind == "user":
+            params["forUsername"] = value
+        else:  # legacy /c/ custom URL: the API has no direct lookup, so find the channel by search (100 units)
+            hit = self._api("search", {"part": "snippet", "type": "channel", "q": value, "maxResults": 1})
+            items = hit.get("items") or []
+            if not items:
+                raise ConnectorError(f"youtube: channel '{channel}' not found")
+            params["id"] = items[0]["id"]["channelId"]
+        found = (self._api("channels", params).get("items") or [])
+        if not found:
+            raise ConnectorError(f"youtube: channel '{channel}' not found")
+        title = _clean((found[0].get("snippet") or {}).get("title")) or channel
+        uploads = ((found[0].get("contentDetails") or {}).get("relatedPlaylists") or {}).get("uploads")
+        if not uploads:
+            return title, []
+        ids: list[str] = []
+        scanned, token = 0, None
+        while len(ids) < n and scanned < max_scan:
+            page_params = {"part": "contentDetails", "playlistId": uploads, "maxResults": 50}
+            if token:
+                page_params["pageToken"] = token
+            page = self._api("playlistItems", page_params)
+            for it in page.get("items", []):
+                scanned += 1
+                vid = (it.get("contentDetails") or {}).get("videoId")
+                if vid and vid not in skip and vid not in ids:
+                    ids.append(vid)
+                    if len(ids) >= n:
+                        break
+            token = page.get("nextPageToken")
+            if not token:
+                break
+        return title, ids
 
     @staticmethod
     def parse(data: dict) -> list[Candidate]:
