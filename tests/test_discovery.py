@@ -216,3 +216,32 @@ def test_connector_failure_is_recorded(tmp_path):
     assert r.errors and r.queries_run == 0
     with session_scope(engine) as sess:
         assert sess.scalars(select(ErrorRecord)).one().stage == "discovery"
+
+
+def test_unread_source_found_again_moves_to_the_new_campaign(tmp_path):
+    from qsd.config import DEFAULT_CONFIG, load_settings
+    from qsd.db import init_db, make_engine, session_scope
+    from qsd.db.models import Campaign, Source
+    from qsd.discovery import CampaignBudget, Candidate, run_discovery
+    from qsd.taxonomy import AccessStatus
+
+    class One:
+        name = "fake"
+
+        def search(self, query, limit=10):
+            return [Candidate("fake", title="Breakout trading", url="https://papers.example/b", work_type="article")]
+
+    s = load_settings(DEFAULT_CONFIG, None, environ={})
+    e = make_engine(tmp_path / "d.sqlite")
+    init_db(e)
+    with session_scope(e) as sess:
+        sess.add_all([Campaign(request_text="a"), Campaign(request_text="b")])
+    run_discovery(e, [One()], ["q1"], CampaignBudget(s.budgets), campaign_id=1, memory_days=0)
+    run_discovery(e, [One()], ["q2"], CampaignBudget(s.budgets), campaign_id=2, memory_days=0)
+    with session_scope(e) as sess:
+        src = sess.query(Source).one()
+        assert src.campaign_id == 2  # unread → picked up by the campaign that found it again
+        src.access_status = AccessStatus.OK
+    run_discovery(e, [One()], ["q3"], CampaignBudget(s.budgets), campaign_id=1, memory_days=0)
+    with session_scope(e) as sess:
+        assert sess.query(Source).one().campaign_id == 2  # already read: stays where it was read
