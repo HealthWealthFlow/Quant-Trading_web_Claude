@@ -185,3 +185,83 @@ def test_budget_stop_is_recorded(setup, tmp_path):
     assert rep.status == "STOPPED" and "documents" in rep.stop_reason
     with session_scope(e) as sess:
         assert sess.get(Campaign, cid).status is CampaignStatus.STOPPED
+
+
+def test_progress_is_reported_and_stored_for_the_live_monitor(setup):
+    s, e, runner, ai = setup
+    seen = []
+    runner.on_event = lambda phase, msg: seen.append((phase, msg))
+    cid = runner.create("Find crash-protection ETF trend strategies")
+    runner.run(cid)
+    phases = [p for p, _ in seen]
+    assert phases[0] == "start" and phases[-1] == "done"
+    assert {"search", "read", "extract", "score", "deepen"} <= set(phases)
+    msgs = "\n".join(m for _, m in seen)
+    assert "[1/1] Crash protection with trend following ETFs" in msgs
+    assert "1 strategy(ies): 10-month moving average timing" in msgs
+    assert "openalex:" in msgs and "results" in msgs
+    with session_scope(e) as sess:
+        prog = sess.get(Campaign, cid).state["progress"]
+    assert prog["phase"] == "done" and prog["strategies_found"] == 1
+    assert prog["papers_done"] == prog["papers_total"] == 1 and prog["searches_done"] >= 1
+    assert len(prog["events"]) == len(seen) and prog["events"][-1]["msg"].startswith("Finished:")
+
+
+def test_progress_log_is_capped(setup):
+    from qsd.campaign.runner import MAX_EVENTS
+    from qsd.discovery import CampaignBudget
+
+    s, e, runner, ai = setup
+    cid = runner.create("x")
+    budget = CampaignBudget(s.budgets)
+    for n in range(MAX_EVENTS + 25):
+        runner._note(cid, budget, "search", f"event {n}")
+    with session_scope(e) as sess:
+        events = sess.get(Campaign, cid).state["progress"]["events"]
+    assert len(events) == MAX_EVENTS and events[-1]["msg"] == f"event {MAX_EVENTS + 24}"
+
+
+def test_interrupted_campaign_is_marked_stopped(setup):
+    s, e, runner, ai = setup
+    cid = runner.create("x")
+    runner.mark_interrupted(cid)
+    with session_scope(e) as sess:
+        c = sess.get(Campaign, cid)
+        assert c.status is CampaignStatus.STOPPED and "--resume" in c.stop_reason
+
+
+def test_guided_research_runs_everything_after_one_question(setup):
+    from contextlib import contextmanager
+
+    from qsd.research import run_wizard
+
+    s, e, runner, ai = setup
+    answers = iter(["", "Find crash-protection ETF trend strategies", "1", "y", "", ""])
+    out, opened = [], []
+
+    @contextmanager
+    def make_runner(limits):
+        runner.limits = limits
+        yield runner
+
+    rc = run_wizard(e, s, make_runner, ask=lambda prompt: next(answers), out=out.append,
+                    open_browser=opened.append, dashboard=lambda eng, st, port: ("http://127.0.0.1:9/", "test"))
+    text = "\n".join(out)
+    assert rc == 0 and opened == ["http://127.0.0.1:9/live"]
+    assert "Assets:            ETF" in text and "Crash (crisis)" in text and "trend following" in text
+    assert "Backtest queue:" in text and "10-month moving average timing" in text
+    assert runner.limits.docs_per_round == 1
+    with session_scope(e) as sess:
+        assert sess.scalars(select(Campaign)).one().status is CampaignStatus.COMPLETED
+
+
+def test_guided_research_quit_and_decline(setup):
+    from qsd.research import run_wizard
+
+    s, e, runner, ai = setup
+    answers = iter(["crypto momentum", "", "n", "q"])
+    rc = run_wizard(e, s, lambda limits: None, ask=lambda p: next(answers), out=lambda *_: None,
+                    open_browser=lambda u: None, dashboard=lambda *a: (None, "x"))
+    assert rc == 0
+    with session_scope(e) as sess:
+        assert sess.scalars(select(Campaign)).first() is None  # declined: nothing started, nothing spent

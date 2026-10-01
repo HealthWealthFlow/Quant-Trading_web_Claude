@@ -2,7 +2,7 @@
 
 BASE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}QSD{% endblock %} · Quant Strategy Discovery</title>
+<title>{% block title %}QSD{% endblock %} · Quant Strategy Discovery</title>{% block head %}{% endblock %}
 <style>
 :root{--plane:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;
 --line:#c3c2b7;--ring:rgba(11,11,11,.10);--accent:#2a78d6;--good:#0ca30c;--good-text:#006300;--warning:#fab219;
@@ -33,8 +33,11 @@ border:1px solid var(--ring);white-space:nowrap}.dot{width:8px;height:8px;border
 flex-wrap:wrap;align-items:end}select,input,button{font:inherit;padding:4px 8px;border:1px solid var(--line);
 border-radius:6px;background:var(--surface);color:var(--ink)}.grid2{display:grid;grid-template-columns:1fr 1fr;
 gap:14px}@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+.bar{height:8px;background:var(--grid);border-radius:999px;overflow:hidden;margin-top:8px}
+.bar span{display:block;height:100%;background:var(--accent)}.log td{font-variant-numeric:tabular-nums}
+.current{font-size:15px;margin:10px 0 14px}
 </style></head><body>
-<header><b>Quant Strategy Discovery</b><nav><a href="/">Overview</a><a href="/ideas">Ideas</a>
+<header><b>Quant Strategy Discovery</b><nav><a href="/live">Live</a><a href="/">Overview</a><a href="/ideas">Ideas</a>
 <a href="/sources">Sources</a><a href="/ai-cost">AI cost</a><a href="/errors">Errors</a></nav>
 <span class="muted" style="margin-left:auto">Read-only · research candidates only · never places trades</span></header>
 <main>{% block body %}{% endblock %}</main></body></html>"""
@@ -201,5 +204,35 @@ ERRORS = """{% extends "base.html" %}{% block title %}Errors{% endblock %}{% blo
 <td class="num">{{ e.retry_count }}</td><td>{{ e.state.value|lower }}</td></tr>
 {% else %}<tr><td colspan="7" class="muted">No errors.</td></tr>{% endfor %}</table>{% endblock %}"""
 
-TEMPLATES = {"base.html": BASE, "macros.html": MACROS, "overview.html": OVERVIEW, "ideas.html": IDEAS,
+LIVE = """{% extends "base.html" %}{% import "macros.html" as m %}{% block title %}Live{% endblock %}
+{% block head %}{% if running %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block body %}{% if not c %}<h1>Live research monitor</h1><p class="sub">No research has been started yet. Double-click
+research.bat (or run <b>qsd research</b>) and describe what to look for.</p>{% else %}
+<h1>Research {{ c.id }}: {{ c.request_text }}</h1>
+<p class="sub">{{ m.status(c.status.value) }} {% if running %}· updates every 3 seconds{% if stale %} ·
+<b>no update for {{ stale }} min</b> (the research window may have been closed){% endif %}{% else %}·
+{{ c.stop_reason or '' }}{% endif %}</p>
+<p class="current"><b>{{ (p.phase or 'starting')|capitalize }}:</b> {{ p.current or 'starting…' }}</p>
+<div class="tiles">
+<div class="tile"><div class="label">Searches</div><div class="value">{{ p.searches_done or 0 }} / {{ p.searches_total or 0 }}</div></div>
+<div class="tile"><div class="label">Papers found</div><div class="value">{{ sources_found|fmt }}</div></div>
+<div class="tile"><div class="label">Papers read (this round)</div><div class="value">{{ p.papers_done or 0 }} / {{ p.papers_total or 0 }}</div>
+<div class="bar"><span style="width:{{ pct }}%"></span></div></div>
+<div class="tile"><div class="label">Strategies found</div><div class="value">{{ ideas|length }}</div></div>
+<div class="tile"><div class="label">Promising</div><div class="value">{{ promising }}</div></div>
+<div class="tile"><div class="label">AI cost (cap {{ cap|money }})</div><div class="value">{{ (p.ai_cost_usd or 0)|money }}</div></div>
+</div>
+<div class="grid2"><div><h2>Strategies found</h2>
+<table><tr><th>Strategy</th><th>Status</th><th class="num">Quality</th><th>Market direction</th></tr>
+{% for i in ideas %}<tr><td><a href="/ideas/{{ i.id }}">{{ i.strategy_name }}</a></td><td>{{ m.status(i.status.value) }}</td>
+<td class="num">{{ i.idea_quality_score|fmt(1) }}</td><td>{{ m.regimes(i) }}</td></tr>
+{% else %}<tr><td colspan="4" class="muted">None yet. Strategies appear here as papers are read.</td></tr>{% endfor %}</table></div>
+<div><h2>Activity</h2><table class="log"><tr><th>Time</th><th>Step</th><th>What happened</th></tr>
+{% for e in events %}<tr><td class="muted">{{ e.t }}</td><td>{{ e.phase }}</td><td>{{ e.msg }}</td></tr>
+{% else %}<tr><td colspan="3" class="muted">No activity yet.</td></tr>{% endfor %}</table></div></div>
+{% endif %}{% if others %}<h2>Other research</h2><table><tr><th>#</th><th>Request</th><th>Status</th></tr>
+{% for o in others %}<tr><td><a href="/live?id={{ o.id }}">{{ o.id }}</a></td><td>{{ o.request_text }}</td>
+<td>{{ m.status(o.status.value) }}</td></tr>{% endfor %}</table>{% endif %}{% endblock %}"""
+
+TEMPLATES = {"live.html": LIVE, "base.html": BASE, "macros.html": MACROS, "overview.html": OVERVIEW, "ideas.html": IDEAS,
              "idea.html": IDEA, "sources.html": SOURCES, "ai_cost.html": AI_COST, "errors.html": ERRORS}

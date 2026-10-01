@@ -31,6 +31,7 @@ def make_engine(url_or_path: str | Path) -> Engine:
             cur = dbapi_conn.cursor()
             cur.execute("PRAGMA foreign_keys=ON")
             cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA busy_timeout=10000")  # dashboard reads while a campaign writes
             cur.close()
     return engine
 

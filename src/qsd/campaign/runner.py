@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select
 
 from ..ai import AIGateway, AIOutputError, ProviderError, UnpricedModelError, extract_ideas, prompts
 from ..ai.grounding import normalize, quote_in_source
@@ -30,6 +30,7 @@ from .parse import CampaignSpec, parse_request
 RELATION_ROLES = {"REPLICATES": IdeaSourceRole.REPLICATES, "SUPPORTS": IdeaSourceRole.SUPPORTS,
                   "CONTRADICTS": IdeaSourceRole.CONTRADICTS}
 MIN_RELATION_CONFIDENCE = 0.6
+MAX_EVENTS = 80  # progress events kept in campaigns.state for the live monitor
 
 
 @dataclass
@@ -62,10 +63,13 @@ def _relevance(text: str, terms: list[str]) -> int:
 
 class CampaignRunner:
     def __init__(self, engine: Engine, settings: Settings, fetcher: PoliteFetcher, gateway: AIGateway,
-                 connectors: list[Connector], limits: CampaignLimits | None = None):
+                 connectors: list[Connector], limits: CampaignLimits | None = None, on_event=None):
+        """`on_event(phase, message)` receives every progress message (e.g. to print it); the same messages and
+        counters are stored in `campaigns.state["progress"]` for the dashboard's live monitor."""
         self.engine, self.settings, self.fetcher, self.gw = engine, settings, fetcher, gateway
         self.connectors = connectors
         self.limits = limits or CampaignLimits()
+        self.on_event = on_event
 
     # -- campaign persistence -----------------------------------------------------------------------------------
 
@@ -88,6 +92,31 @@ class CampaignRunner:
             new["spent"] = budget.snapshot()
             c.state = new
 
+    def _note(self, cid: int, budget: CampaignBudget, phase: str, message: str, **counters) -> None:
+        """Record one progress step (live monitor) and pass it to `on_event`."""
+        now = datetime.now(UTC)
+        with session_scope(self.engine) as s:
+            c = s.get(Campaign, cid)
+            state = dict(c.state or {})
+            prog = dict(state.get("progress") or {})
+            prog.update(counters)
+            prog["strategies_found"] = s.execute(select(func.count()).select_from(Idea)
+                                                 .where(Idea.campaign_id == cid)).scalar_one()
+            prog.update(phase=phase, current=message[:300], updated_at=now.isoformat(timespec="seconds"),
+                        ai_cost_usd=round(float(budget.spent.get("ai_cost_usd", 0.0)), 6))
+            prog["events"] = (list(prog.get("events") or []) +
+                              [{"t": now.strftime("%H:%M:%S"), "phase": phase, "msg": message[:300]}])[-MAX_EVENTS:]
+            state["progress"], state["spent"] = prog, budget.snapshot()
+            c.state = state
+        if self.on_event:
+            self.on_event(phase, message)
+
+    def _idea_line(self, idea_id: int) -> str:
+        with session_scope(self.engine) as s:
+            i = s.get(Idea, idea_id)
+            q = "-" if i.idea_quality_score is None else f"{i.idea_quality_score:.1f}"
+            return f"#{i.id} {i.strategy_name[:90]} -> {i.status.value} (quality {q})"
+
     def _state(self, cid: int) -> dict:
         with session_scope(self.engine) as s:
             return dict(s.get(Campaign, cid).state or {})
@@ -99,6 +128,15 @@ class CampaignRunner:
     # -- phases ---------------------------------------------------------------------------------------------------
 
     def _discover(self, cid: int, spec: CampaignSpec, budget: CampaignBudget) -> int:
+        found_total = [0]
+
+        def on_search(conn: str, query: str, found, new: int, done: int, total: int) -> None:
+            found_total[0] += new
+            what = ("skipped (searched recently)" if found is None else "failed" if found == -1
+                    else f"{found} results, {new} new")
+            self._note(cid, budget, "search", f"[{done}/{total}] {conn}: \"{query[:80]}\" - {what}",
+                       searches_done=done, searches_total=total, sources_found=found_total[0])
+
         assets = [AssetClass(a) for a in spec.asset_classes] or None
         regimes = [MarketRegime(r) for r in spec.regimes] or None
         extra = [spec.core_query] if spec.core_query else []
@@ -106,7 +144,8 @@ class CampaignRunner:
         queries = extra + build_queries(assets, regimes, limit=self.limits.max_queries)
         rep = run_discovery(self.engine, self.connectors, queries[:self.limits.max_queries], budget,
                             limit_per_query=self.limits.results_per_query,
-                            memory_days=self.settings.discovery.search_memory_days, campaign_id=cid)
+                            memory_days=self.settings.discovery.search_memory_days, campaign_id=cid,
+                            on_search=on_search)
         for e in rep.errors:
             self._error(cid, "discovery", None, "connector", e)
         if rep.stopped_reason:
@@ -213,6 +252,7 @@ class CampaignRunner:
             c = s.get(Campaign, cid)
             spec = CampaignSpec(**c.spec)
             c.status = CampaignStatus.RUNNING
+            request = c.request_text
         state = self._state(cid)
         budget = CampaignBudget(self.settings.budgets)
         budget.spent.update(state.get("spent", {}))
@@ -221,33 +261,60 @@ class CampaignRunner:
         done_docs = set(state.get("processed_sources", []))
         deepened = set(state.get("deepened_ideas", []))
         stop_reason, status = None, CampaignStatus.COMPLETED
+        self._note(cid, budget, "start", f"Campaign {cid}: {request[:200]}")
         try:
             if "discover" not in state.get("phases_done", []):
+                self._note(cid, budget, "search", "Searching arXiv, OpenAlex and Crossref for papers ...")
                 report.new_sources = self._discover(cid, spec, budget)
                 self._save(cid, budget, phases_done=state.get("phases_done", []) + ["discover"])
                 report.phases.append("discover")
+                self._note(cid, budget, "search", f"Search finished: {report.new_sources} new papers found")
                 if report.new_sources == 0 and not self._select(cid, spec, done_docs):
                     stop_reason = "NO_NEW_SOURCES: searches returned nothing new (low yield, spec §44)"
 
             if stop_reason is None:
-                for sid, url in self._select(cid, spec, done_docs):
+                chosen = self._select(cid, spec, done_docs)
+                self._note(cid, budget, "read", f"Reading the {len(chosen)} most relevant papers",
+                           papers_done=0, papers_total=len(chosen))
+                for n, (sid, url) in enumerate(chosen, 1):
                     budget.spend("documents")
+                    with session_scope(self.engine) as s:
+                        title = s.get(Source, sid).title
+                    self._note(cid, budget, "read", f"[{n}/{len(chosen)}] {title[:160]}", current_title=title[:300])
                     result = self._fetch_into(cid, sid, url)
                     done_docs.add(sid)
                     report.documents_processed += 1
-                    if result is not None and result.blocks:
+                    if result is None or not result.blocks:
+                        with session_scope(self.engine) as s:
+                            access = s.get(Source, sid).access_status.value
+                        self._note(cid, budget, "read", f"    not readable ({access.lower()}), skipped",
+                                   papers_done=n)
+                    else:
                         try:
                             ex = extract_ideas(self.gw, self.engine, self.settings, sid, result, campaign_id=cid)
                             report.ideas += ex.idea_ids
+                            if ex.idea_ids:
+                                with session_scope(self.engine) as s:
+                                    names = [s.get(Idea, i).strategy_name[:90] for i in ex.idea_ids]
+                                self._note(cid, budget, "extract",
+                                           f"    {len(names)} strategy(ies): " + "; ".join(names), papers_done=n)
+                            else:
+                                why = {"TRIAGE_NOT_PROMISING": "no testable strategy in this paper",
+                                       "NO_TEXT": "no text"}.get(ex.skipped_reason or "", "no strategy extracted")
+                                self._note(cid, budget, "extract", f"    {why}", papers_done=n)
                         except (ProviderError, AIOutputError) as e:
                             self._error(cid, "extract", str(sid), "AIGateway", e)
+                            self._note(cid, budget, "extract", f"    AI error, skipped: {str(e)[:120]}",
+                                       papers_done=n)
                     self._save(cid, budget, processed_sources=sorted(done_docs))
                 report.phases.append("fetch_extract")
 
                 with session_scope(self.engine) as s:
                     ids = list(s.scalars(select(Idea.id).where(Idea.campaign_id == cid)))
+                self._note(cid, budget, "score", f"Scoring {len(ids)} strategies")
                 for i in ids:
                     score_idea(self.engine, self.settings, i)
+                    self._note(cid, budget, "score", "    " + self._idea_line(i))
                 report.phases.append("score")
 
                 with session_scope(self.engine) as s:
@@ -255,14 +322,23 @@ class CampaignRunner:
                         Idea.campaign_id == cid, Idea.status.in_([IdeaStatus.PROMISING, IdeaStatus.RESEARCHING]))
                         .order_by(Idea.research_priority_score.desc().nulls_last())
                         .limit(self.limits.deepen_top_ideas)))
-                for i in top:
-                    if i in deepened:
-                        continue
-                    for k, v in self._deepen(cid, i, budget).items():
+                todo = [i for i in top if i not in deepened]
+                if todo:
+                    self._note(cid, budget, "deepen", f"Follow-up search (replication / criticism / recent) for "
+                                                      f"{len(todo)} strategies")
+                for i in todo:
+                    with session_scope(self.engine) as s:
+                        name = s.get(Idea, i).strategy_name[:90]
+                    self._note(cid, budget, "deepen", f"    #{i} {name}")
+                    counts = self._deepen(cid, i, budget)
+                    for k, v in counts.items():
                         report.links[k] = report.links.get(k, 0) + v
                     score_idea(self.engine, self.settings, i)
                     deepened.add(i)
                     self._save(cid, budget, deepened_ideas=sorted(deepened))
+                    self._note(cid, budget, "deepen",
+                               f"      supports {counts['SUPPORTS'] + counts['REPLICATES']}, contradicts "
+                               f"{counts['CONTRADICTS']} -> {self._idea_line(i)}")
                 report.phases.append("deepen")
         except BudgetExhausted as e:
             stop_reason, status = f"BUDGET: {e}", CampaignStatus.STOPPED
@@ -283,8 +359,22 @@ class CampaignRunner:
             c = s.get(Campaign, cid)
             c.status, c.stop_reason, c.finished_at = status, stop_reason, datetime.now(UTC)
         self._save(cid, budget)
+        self._note(cid, budget, "done", f"Finished: {stop_reason}")
         report.status, report.stop_reason, report.budget_spent = status.value, stop_reason, budget.snapshot()
         return report
+
+    def mark_interrupted(self, cid: int) -> None:
+        """Ctrl+C: record the stop so the monitor and `--resume` show the right state."""
+        with session_scope(self.engine) as s:
+            c = s.get(Campaign, cid)
+            c.status = CampaignStatus.STOPPED
+            c.stop_reason = "INTERRUPTED by user; continue with: qsd campaign --resume " + str(cid)
+            c.finished_at = datetime.now(UTC)
+            state = dict(c.state or {})
+            prog = dict(state.get("progress") or {})
+            prog.update(phase="done", current=c.stop_reason)
+            state["progress"] = prog
+            c.state = state
 
 
 def _budget_from_reason(reason: str) -> BudgetExhausted:
