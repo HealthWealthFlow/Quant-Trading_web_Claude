@@ -34,6 +34,12 @@
       "title": "Hypothesis",
       "type": "string"
     },
+    "maturity": {
+      "default": "UNKNOWN",
+      "description": "How completely the rules are specified: CONCEPT, PARTIAL, TRADEABLE or BACKTEST-READY. Not a quality or profitability judgement.",
+      "title": "Maturity",
+      "type": "string"
+    },
     "asset_classes": {
       "items": {
         "type": "string"

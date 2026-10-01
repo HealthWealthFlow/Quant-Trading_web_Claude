@@ -10,7 +10,16 @@ from pathlib import Path
 from . import __version__
 from .config import load_settings
 from .db import DB_FILENAME, init_db, make_engine, session_scope, table_counts
-from .discovery import CONNECTORS, CampaignBudget, FeedConnector, build_queries, run_discovery, store_candidate
+from .discovery import (
+    CONNECTORS,
+    CampaignBudget,
+    ConnectorError,
+    FeedConnector,
+    build_connectors,
+    build_queries,
+    run_discovery,
+    store_candidate,
+)
 from .fetch import PoliteFetcher, fetch_and_store
 from .handlers import parse_file
 from .localscan import scan_paths
@@ -114,9 +123,14 @@ def _cmd_discover(args: argparse.Namespace) -> int:
     queries = list(args.query) or build_queries(assets or None, regimes or None, limit=args.max_queries)
     budget = CampaignBudget(s.budgets)
     with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
-        connectors = [CONNECTORS[n](fetcher, s.discovery.contact_email) for n in names]
+        try:
+            connectors = build_connectors(fetcher, s, None if args.connector == "all" else names)
+        except ConnectorError as e:
+            print(f"Stopped: {e}", file=sys.stderr)
+            return 2
         report = run_discovery(engine, connectors, queries, budget, limit_per_query=args.limit,
-                               memory_days=0 if args.force else s.discovery.search_memory_days)
+                               memory_days=0 if args.force else s.discovery.search_memory_days,
+                               video_links=s.discovery.youtube_max_links_per_video)
     out = {k: v for k, v in report.__dict__.items() if k != "source_ids"}
     out["budget_spent"] = budget.snapshot()
     print(json.dumps(out, indent=2))
@@ -396,7 +410,7 @@ def _campaign_runner(s, engine, fetcher, limits, on_event=_print_event):
     from .campaign import CampaignRunner
 
     gw = AIGateway(engine, s, default_providers())
-    connectors = [CONNECTORS[n](fetcher, s.discovery.contact_email) for n in CONNECTORS]
+    connectors = build_connectors(fetcher, s)
     return CampaignRunner(engine, s, fetcher, gw, connectors, limits, on_event=on_event)
 
 
@@ -432,6 +446,55 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     if report is None:
         return 130
     print(json.dumps(report.__dict__, indent=2, default=str))
+    return 0
+
+
+def _cmd_sources(args: argparse.Namespace) -> int:
+    """Read the sources listed in sources.txt (videos, channels, links, files, folders) instead of searching."""
+    from .campaign import CampaignLimits
+    from .sources_file import read_sources_file
+
+    _safe_console()
+    s = load_settings()
+    path = Path(args.file) if args.file else s.resolve_path(Path("sources.txt"))
+    items, problems = read_sources_file(path)
+    for p in problems:
+        print(f"! {p}", file=sys.stderr)
+    if args.dry_run or not items:
+        for it in items:
+            print(f"line {it.line:>3}  {it.kind:<16} {it.target}" + (f"  | title: {it.title}" if it.title else "")
+                  + (f"  | n: {it.n}" if it.n else ""))
+        return 0 if items else 2
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache",
+                       max_requests_per_host=s.budgets.max_sources_per_domain) as fetcher:
+        runner = _campaign_runner(s, engine, fetcher, CampaignLimits())
+        youtube = next((c for c in runner.connectors if c.name == "youtube"), None)
+        cid, seeded = runner.create_from_sources(items, youtube, label=path.name)
+        runner.limits.docs_per_round = max(1, min(s.budgets.max_documents_per_campaign, seeded.added))
+        report = _run_with_interrupt(runner, cid)
+    if report is None:
+        return 130
+    print(json.dumps(report.__dict__, indent=2, default=str))
+    return 0
+
+
+def _cmd_notes(args: argparse.Namespace) -> int:
+    from .export import export_notes
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    try:
+        rep = export_notes(engine, s, campaign_id=args.campaign, idea_ids=args.idea or None,
+                           notes_dir=Path(args.dir) if args.dir else None)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"{rep.written} note(s) written/updated in {rep.folder}")
+    for f in rep.skipped_files:
+        print(f"left untouched (not written by QSD): {f}")
     return 0
 
 
@@ -488,7 +551,7 @@ def build_parser() -> argparse.ArgumentParser:
     qu.set_defaults(func=_cmd_queries)
     di = sub.add_parser("discover", help="search official APIs and store candidate sources (metadata only)")
     di.add_argument("query", nargs="*", help="free-text queries; default: query families for --asset/--regime")
-    di.add_argument("--connector", default="all", help="arxiv,openalex,crossref or all")
+    di.add_argument("--connector", default="all", help="arxiv,openalex,crossref,youtube or all")
     di.add_argument("--asset", action="append", default=[])
     di.add_argument("--regime", action="append", default=[])
     di.add_argument("--limit", type=int, default=10, help="results per query per connector")
@@ -535,6 +598,18 @@ def build_parser() -> argparse.ArgumentParser:
     wb.add_argument("--port", type=int, default=8877)
     wb.add_argument("--db", help="database path or SQLAlchemy URL")
     wb.set_defaults(func=_cmd_web)
+    so = sub.add_parser("sources", help="read your own list in sources.txt: YouTube videos/channels, links, files, "
+                                        "folders (already-read items are skipped)")
+    so.add_argument("--file", help="list file (default: sources.txt in the project folder)")
+    so.add_argument("--dry-run", action="store_true", help="only show how each line is understood")
+    so.add_argument("--db", help="database path or SQLAlchemy URL")
+    so.set_defaults(func=_cmd_sources)
+    no = sub.add_parser("notes", help="write strategy ideas as Markdown notes (e.g. an Obsidian vault)")
+    no.add_argument("--dir", help="vault folder (default: export.notes_dir in config/local.yaml)")
+    no.add_argument("--campaign", type=int, help="only ideas from this campaign")
+    no.add_argument("--idea", type=int, action="append", default=[], help="only this idea (repeatable)")
+    no.add_argument("--db", help="database path or SQLAlchemy URL")
+    no.set_defaults(func=_cmd_notes)
     rs = sub.add_parser("research", help="guided research: describe what to find, then everything runs with a live "
                                          "monitor (used by research.bat)")
     rs.add_argument("--port", type=int, default=8877, help="dashboard / live monitor port")

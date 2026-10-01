@@ -114,6 +114,10 @@ class Discovery(BaseModel):
     contact_email: str | None = None
     results_per_query: int = Field(10, gt=0, le=100)
     search_memory_days: int = Field(30, ge=0)  # don't repeat an identical search within this window
+    # YouTube Data API (metadata only: titles, descriptions, links). Used when YOUTUBE_API_KEY is set.
+    youtube_enabled: bool = True
+    youtube_results_per_query: int = Field(10, gt=0, le=50)
+    youtube_max_links_per_video: int = Field(5, ge=0, le=20)  # research links followed from a description
 
 
 DEFAULT_IDEA_WEIGHTS = {
@@ -148,6 +152,14 @@ class Handoff(BaseModel):
     queue_dir: Path = Path("data/backtest_queue")
 
 
+class Export(BaseModel):
+    """Optional Markdown notes (e.g. an Obsidian vault). Files written by QSD carry `qsd_id` in their front matter;
+    any other file is never overwritten."""
+
+    notes_dir: Path | None = None
+    notes_subfolder: str = "QSD Strategies"
+
+
 class Settings(BaseModel):
     paths: Paths = Field(default_factory=Paths)
     asset_classes: AssetClassConfig = Field(default_factory=AssetClassConfig)
@@ -159,6 +171,7 @@ class Settings(BaseModel):
     discovery: Discovery = Field(default_factory=Discovery)
     scoring: Scoring = Field(default_factory=Scoring)
     handoff: Handoff = Field(default_factory=Handoff)
+    export: Export = Field(default_factory=Export)
 
     def resolve_path(self, p: Path) -> Path:
         return p if p.is_absolute() else REPO_ROOT / p

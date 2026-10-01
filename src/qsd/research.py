@@ -13,6 +13,7 @@ import time
 import webbrowser
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from pathlib import Path
 
 import httpx
 from sqlalchemy import Engine, func, select
@@ -21,9 +22,11 @@ from .campaign import CampaignLimits, parse_request
 from .config import Settings
 from .db import session_scope
 from .db.models import AICall, Campaign, Idea, Source
+from .sources_file import read_sources_file
 from .taxonomy import REGIME_LABELS, AccessStatus, IdeaStatus, MarketRegime
 
 DEFAULT_PORT = 8877
+SOURCES_FILE = "sources.txt"
 DEFAULT_DOCS = 10
 MAX_DOCS = 50
 EXAMPLES = ('"Find crash-protection ETF strategies"', '"Momentum strategies for stocks in bull markets"',
@@ -76,6 +79,17 @@ def describe(spec) -> list[str]:
     if not (spec.asset_classes or spec.regimes or spec.families):
         lines.append("  (No asset, market direction or strategy type recognised; your words are searched as given.)")
     return lines
+
+
+def sources_line(settings: Settings) -> str:
+    from .config import get_secret
+
+    base = "arXiv, OpenAlex, Crossref (research papers)"
+    if not settings.discovery.youtube_enabled:
+        return base + "; YouTube off in config"
+    if not get_secret("YOUTUBE_API_KEY"):
+        return base + "; YouTube off (no YOUTUBE_API_KEY set)"
+    return base + " + YouTube (titles, descriptions and the papers they link to)"
 
 
 def cost_per_paper(engine: Engine) -> float | None:
@@ -134,33 +148,63 @@ def _ask_int(ask, prompt: str, default: int | None) -> int | None:
         return default
 
 
+def describe_sources(items) -> list[str]:
+    kinds = {"youtube_video": "YouTube videos", "youtube_channel": "YouTube channels", "url": "links",
+             "path": "files / folders"}
+    counts: dict[str, int] = {}
+    for it in items:
+        counts[kinds[it.kind]] = counts.get(kinds[it.kind], 0) + 1
+    return [f"  {name}: {n}" for name, n in counts.items()]
+
+
 def run_wizard(engine: Engine, settings: Settings, make_runner: RunnerFactory, *, ask=input, out=print,
-               open_browser=webbrowser.open, dashboard=start_dashboard, port: int = DEFAULT_PORT) -> int:
+               open_browser=webbrowser.open, dashboard=start_dashboard, port: int = DEFAULT_PORT,
+               sources_path: Path | None = None) -> int:
     from .cli import _run_with_interrupt
 
+    sources_path = sources_path or settings.resolve_path(Path(SOURCES_FILE))
     out("=" * 72)
     out(" Quant Strategy Discovery - guided research")
-    out(" Finds and fact-checks strategy ideas in research papers. It never trades.")
+    out(" Finds and fact-checks strategy ideas in papers and videos. It never trades.")
     out("=" * 72)
     b = settings.budgets
+    items, request, docs = [], "", DEFAULT_DOCS
     while True:
         out("")
         out("What should I research? Examples: " + ", ".join(EXAMPLES))
-        request = ask("Your research (or Q to quit): ").strip()
+        out(f"Or type S to read your own list in {sources_path.name} (videos, channels, links, files, folders).")
+        request = ask("Your research (S = sources.txt, Q = quit): ").strip()
         if request.lower() in {"q", "quit", "exit"}:
             return 0
         if not request:
             continue
-        spec = parse_request(request)
-        out("")
-        out("I understood:")
-        for line in describe(spec):
-            out(line)
-        docs = _ask_int(ask, f"How many papers should I read in this round? [{DEFAULT_DOCS}]: ", DEFAULT_DOCS)
-        per = cost_per_paper(engine)
-        estimate = f"about ${per * docs:.2f} (based on papers read so far)" if per else "no estimate yet"
-        out(f"AI cost for {docs} papers: {estimate}. Hard caps: ${b.max_ai_cost_usd_per_campaign:.2f} per campaign, "
-            f"${b.max_ai_cost_usd_per_day:.2f} per day, ${b.max_ai_cost_usd_per_month:.2f} per month.")
+        if request.lower() in {"s", "sources", "sources.txt"}:
+            items, problems = read_sources_file(sources_path)
+            for p in problems:
+                out(f"  ! {p}")
+            if not items:
+                out(f"Nothing to read in {sources_path}. See sources.example.txt for the format.")
+                continue
+            out("")
+            out(f"{sources_path.name} lists:")
+            for line in describe_sources(items):
+                out(line)
+            out(f"  Sources:           {sources_line(settings)}")
+            out("Already-read items are skipped. Hard caps: "
+                f"${b.max_ai_cost_usd_per_campaign:.2f} per run, ${b.max_ai_cost_usd_per_day:.2f} per day.")
+        else:
+            items = []
+            spec = parse_request(request)
+            out("")
+            out("I understood:")
+            for line in describe(spec):
+                out(line)
+            out(f"  Sources:           {sources_line(settings)}")
+            docs = _ask_int(ask, f"How many papers should I read in this round? [{DEFAULT_DOCS}]: ", DEFAULT_DOCS)
+            per = cost_per_paper(engine)
+            estimate = f"about ${per * docs:.2f} (based on papers read so far)" if per else "no estimate yet"
+            out(f"AI cost for {docs} papers: {estimate}. Hard caps: ${b.max_ai_cost_usd_per_campaign:.2f} per "
+                f"campaign, ${b.max_ai_cost_usd_per_day:.2f} per day, ${b.max_ai_cost_usd_per_month:.2f} per month.")
         if ask("Start now? [Y/n]: ").strip().lower() in {"n", "no"}:
             continue
         break
@@ -180,7 +224,11 @@ def run_wizard(engine: Engine, settings: Settings, make_runner: RunnerFactory, *
     cid = None
     while True:
         with make_runner(limits) as runner:
-            if cid is None:
+            if cid is None and items:
+                youtube = next((c for c in runner.connectors if c.name == "youtube"), None)
+                cid, seeded = runner.create_from_sources(items, youtube, label=sources_path.name)
+                runner.limits.docs_per_round = max(1, min(b.max_documents_per_campaign, seeded.added))
+            elif cid is None:
                 cid = runner.create(request)
             report = _run_with_interrupt(runner, cid)
         if report is None:
@@ -189,10 +237,14 @@ def run_wizard(engine: Engine, settings: Settings, make_runner: RunnerFactory, *
         out("Backtest queue:")
         for line in submit_ready(engine, settings, cid):
             out(line)
+        for line in export_lines(engine, settings, cid):
+            out(line)
         out("")
         for line in summary_lines(engine, cid):
             out(line)
         out("")
+        if items:
+            break
         more = _ask_int(ask, "Read more papers for this research? Type a number (e.g. 10), or press Enter to "
                              "finish: ", None)
         if not more:
@@ -203,3 +255,13 @@ def run_wizard(engine: Engine, settings: Settings, make_runner: RunnerFactory, *
         out(f"Results stay on the dashboard: {url}ideas  (it closes when this window closes).")
         ask("Press Enter to close.")
     return 0
+
+
+def export_lines(engine: Engine, settings: Settings, cid: int) -> list[str]:
+    """Write the campaign's ideas as Markdown notes when an Obsidian vault folder is configured."""
+    if not settings.export.notes_dir:
+        return []
+    from .export import export_notes
+
+    rep = export_notes(engine, settings, campaign_id=cid)
+    return [f"Notes: {rep.written} written/updated, {rep.skipped} left untouched in {rep.folder}"]

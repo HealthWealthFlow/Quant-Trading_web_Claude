@@ -88,7 +88,7 @@ placeholder="e.g. ETF"></label><button>Filter</button></form>
 <td class="num">{{ i.evidence_quality|fmt(0) }}</td>
 <td>{{ 'stated' if i.economic_rationale != 'UNKNOWN' else 'unknown' }}</td>
 <td>{{ (comps.get('liquidity', {}).get('value'))|fmt(1) }}</td><td>{{ (comps.get('exit_executability', {}).get('value'))|fmt(1) }}</td>
-<td class="num">{{ i.formalization_completeness|fmt(0) }}</td><td class="num">{{ i.novelty_score|fmt(0) }}</td>
+<td class="num">{{ i.formalization_completeness|fmt(0) }}<br><span class="muted">{{ maturity(i.formalization_completeness)|lower }}</span></td><td class="num">{{ i.novelty_score|fmt(0) }}</td>
 <td class="num">{{ i.research_priority_score|fmt(1) }}</td><td>{{ m.regimes(i) }}</td>
 <td>{{ m.status(i.status.value) }}</td></tr>
 {% else %}<tr><td colspan="15" class="muted">No ideas match these filters.</td></tr>{% endfor %}</table></div>
@@ -96,7 +96,7 @@ placeholder="e.g. ETF"></label><button>Filter</button></form>
 
 IDEA = """{% extends "base.html" %}{% import "macros.html" as m %}{% block title %}{{ idea.strategy_name }}{% endblock %}
 {% block body %}<p><a href="/ideas">← Ideas</a></p><h1>{{ idea.strategy_name }}</h1>
-<p class="sub">{{ m.status(idea.status.value) }} · {{ pkg.strategy_id }} · {{ idea.asset_classes|join(', ') }} ·
+<p class="sub">{{ m.status(idea.status.value) }} · <span class="badge" title="how completely the rules are written down">{{ pkg.maturity|lower }}</span> · {{ pkg.strategy_id }} · {{ idea.asset_classes|join(', ') }} ·
 {{ idea.strategy_families|join(', ')|lower }} · position {{ idea.position_direction.value|lower }} ·
 horizon {{ idea.time_horizon.value|lower }}</p>
 <div class="warn-banner">⚠ {{ pkg.warning }}</div>

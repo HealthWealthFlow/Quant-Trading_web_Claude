@@ -48,7 +48,10 @@ def _money(value: float | None) -> str:
 def make_env() -> Environment:
     env = Environment(loader=DictLoader(TEMPLATES), autoescape=select_autoescape(default=True, default_for_string=True))
     env.filters.update(safe_url=_safe_url, fmt=_fmt, money=_money)
-    env.globals.update(STATUS_KIND=STATUS_KIND, REGIME_LABELS={r.value: v for r, v in REGIME_LABELS.items()})
+    from ..scoring.rules import maturity
+
+    env.globals.update(maturity=maturity, STATUS_KIND=STATUS_KIND,
+                       REGIME_LABELS={r.value: v for r, v in REGIME_LABELS.items()})
     return env
 
 

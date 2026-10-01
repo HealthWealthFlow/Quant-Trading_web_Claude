@@ -1,5 +1,28 @@
 # Changelog
 
+## YouTube search, sources.txt, maturity badge, Obsidian notes (2026-10-01)
+Ideas adapted from the user's own Idea Extractor (read-only reference; nothing in it was changed). Not adopted:
+subtitle download via yt-dlp (YouTube's terms), Claude-Vision OCR (Phase 2).
+- `sources.txt` (+ `sources.example.txt`, git-ignored): YouTube videos, YouTube channels (`| n:25`, newest videos
+  not read before, via the uploads playlist: ~3 quota units instead of 100), links, local files and folders, with
+  `| title` overrides. `research.bat` → **S**, or `qsd sources [--dry-run]`. Already-read items are skipped; changed
+  local files are read again; local files are parsed read-only.
+- Maturity badge from rule completeness: CONCEPT (<35) / PARTIAL / TRADEABLE (≥60) / BACKTEST-READY (≥80) on the
+  dashboard and in packages (`maturity`, package v1.2).
+- `qsd notes` + `export.notes_dir`: one Markdown note per idea (YAML front matter: qsd_id, status, maturity,
+  completeness, quality, instruments, market direction, source, tags) into an Obsidian vault subfolder; written at
+  the end of each research run when configured. Untrusted text is escaped; only files with this idea's `qsd_id`
+  are (over)written.
+- `YouTubeConnector` (YouTube Data API v3, official endpoints `search` + `videos`): title, channel, date, duration
+  and full description. Used by campaigns / `research.bat` when `YOUTUBE_API_KEY` is set
+  (`discovery.youtube_enabled`, `youtube_results_per_query`, `youtube_max_links_per_video`).
+- A video is read through its title + description (retrieval `API_METADATA`); videos are never downloaded and
+  transcripts are not scraped (YouTube's terms). Research links in the description (papers, DOIs, PDFs, code;
+  social / shop / affiliate / sign-up links skipped) become candidate sources linked to the video (CITES) and are
+  read like any paper. Videos are tier 3; follow-up evidence searches use paper sources only.
+- API key sent as `X-Goog-Api-Key` header, never in URLs; credentialed responses are never cached; Google key shape
+  added to log redaction. `qsd discover --connector youtube`.
+
 ## Guided research with live progress (2026-10-01)
 - `research.bat` / `qsd research`: asks what to research, shows how it was understood (assets, market direction,
   strategy types) and the cost caps, then runs everything: search → read → extract + fact-check → score →

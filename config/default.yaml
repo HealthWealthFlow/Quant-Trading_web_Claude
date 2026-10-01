@@ -64,6 +64,9 @@ discovery:
   contact_email: null       # e.g. you@example.com — OpenAlex/Crossref ask for this ("polite pool")
   results_per_query: 10
   search_memory_days: 30    # an identical (connector, query) search is not repeated within this window
+  youtube_enabled: true     # used only when the YOUTUBE_API_KEY environment variable is set
+  youtube_results_per_query: 10   # each YouTube search costs 100 of the free 10,000 daily quota units
+  youtube_max_links_per_video: 5  # paper / code links followed from a video description
 
 scoring:
   # Idea quality weights (spec §52); must sum to 100.
@@ -90,3 +93,7 @@ handoff:                       # backtest handoff rule (spec §123); claimed pro
   min_coverage: 0.6            # share of idea-quality weight actually assessed
   min_data_availability: 0.4
   queue_dir: data/backtest_queue   # the Quant Auto OS reads pending/*.json from here
+
+export:
+  notes_dir: null               # e.g. "D:\\Quant Trading\\TradingVault" - Markdown notes per strategy (Obsidian)
+  notes_subfolder: QSD Strategies   # notes go here; files QSD did not write are never overwritten

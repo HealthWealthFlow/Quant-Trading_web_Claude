@@ -20,9 +20,10 @@ from sqlalchemy import Engine, select
 from ..config import Settings
 from ..db import session_scope
 from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Source, SourceFact
+from ..scoring import rules
 from ..taxonomy import UNKNOWN, IdeaSourceRole, IdeaStatus, MarketRegime, RegimeSuitability, TimeHorizon
 
-PACKAGE_VERSION = "1.1"  # 1.1: + grounding
+PACKAGE_VERSION = "1.2"  # 1.1: + grounding; 1.2: + maturity
 DOWNSTREAM_WARNING = ("EXTERNAL PERFORMANCE CLAIMS ARE NOT VALIDATED. "
                       "DOWNSTREAM SYSTEM MUST RECOMPUTE EVERYTHING.")  # spec §124
 
@@ -65,6 +66,9 @@ class ResearchPackage(BaseModel):
     status: str
     strategy_name: str
     hypothesis: str
+    maturity: str = Field("UNKNOWN", description=(
+        "How completely the rules are specified: CONCEPT, PARTIAL, TRADEABLE or BACKTEST-READY. Not a quality "
+        "or profitability judgement."))
     asset_classes: list[str]
     strategy_families: list[str]
     position_direction: str
@@ -208,7 +212,8 @@ def build_package(engine: Engine, settings: Settings, idea_id: int) -> ResearchP
             warning=DOWNSTREAM_WARNING,
             strategy_id=f"QSD-{idea.id:06d}-{(idea.fingerprint or 'nofp')[:8]}",
             idea_id=idea.id, status=idea.status.value, strategy_name=idea.strategy_name,
-            hypothesis=idea.summary, asset_classes=list(idea.asset_classes or []),
+            hypothesis=idea.summary, maturity=rules.maturity(idea.formalization_completeness),
+            asset_classes=list(idea.asset_classes or []),
             strategy_families=list(idea.strategy_families or []),
             position_direction=idea.position_direction.value, time_horizon=idea.time_horizon.value,
             economic_rationale={**_evidence(facts.get("RATIONALE"), idea.economic_rationale),

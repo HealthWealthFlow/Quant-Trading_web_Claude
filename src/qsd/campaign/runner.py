@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 from sqlalchemy import Engine, func, select
 
@@ -21,7 +22,7 @@ from ..discovery import BudgetExhausted, CampaignBudget, build_queries, run_disc
 from ..discovery.connectors import Connector
 from ..fetch.client import PoliteFetcher
 from ..fetch.pipeline import apply_result
-from ..handlers import parse_bytes
+from ..handlers import parse_bytes, parse_file
 from ..scoring import score_idea
 from ..security import wrap_untrusted
 from ..taxonomy import AccessStatus, AssetClass, CampaignStatus, IdeaSourceRole, IdeaStatus, MarketRegime
@@ -92,6 +93,29 @@ class CampaignRunner:
             new["spent"] = budget.snapshot()
             c.state = new
 
+    def create_from_sources(self, items, youtube=None, label: str = "sources.txt") -> tuple[int, object]:
+        """A campaign that reads the listed sources instead of searching (search phase marked done)."""
+        from .seed import seed_sources
+
+        with session_scope(self.engine) as s:
+            spec = CampaignSpec(request=f"Sources from {label}", mode="SOURCES_FILE")
+            c = Campaign(request_text=spec.request, mode=spec.mode, asset_classes=[], strategy_families=[],
+                         target_regimes=[], spec=spec.to_dict(), budgets=self.settings.budgets.model_dump(),
+                         state={"phases_done": ["discover"]}, status=CampaignStatus.PLANNED)
+            s.add(c)
+            s.flush()
+            cid = c.id
+        budget = CampaignBudget(self.settings.budgets)
+        self._note(cid, budget, "start", f"Reading {len(items)} line(s) from {label}")
+        rep = seed_sources(self.engine, cid, items, youtube, budget,
+                           self.settings.discovery.youtube_max_links_per_video,
+                           note=lambda m: self._note(cid, budget, "sources", m))
+        for p in rep.problems:
+            self._note(cid, budget, "sources", f"problem: {p}")
+        self._note(cid, budget, "sources", f"{rep.added} source(s) queued, {rep.already_read} already read before")
+        self._save(cid, budget)
+        return cid, rep
+
     def _note(self, cid: int, budget: CampaignBudget, phase: str, message: str, **counters) -> None:
         """Record one progress step (live monitor) and pass it to `on_event`."""
         now = datetime.now(UTC)
@@ -145,7 +169,7 @@ class CampaignRunner:
         rep = run_discovery(self.engine, self.connectors, queries[:self.limits.max_queries], budget,
                             limit_per_query=self.limits.results_per_query,
                             memory_days=self.settings.discovery.search_memory_days, campaign_id=cid,
-                            on_search=on_search)
+                            on_search=on_search, video_links=self.settings.discovery.youtube_max_links_per_video)
         for e in rep.errors:
             self._error(cid, "discovery", None, "connector", e)
         if rep.stopped_reason:
@@ -165,7 +189,7 @@ class CampaignRunner:
                     continue
                 facts = {f.fact_type: f.value for f in s.scalars(select(SourceFact).where(
                     SourceFact.source_id == src.id))}
-                target = facts.get("PDF_URL") or src.url
+                target = facts.get("PDF_URL") or src.url or src.local_path
                 if not target:
                     continue
                 rel = _relevance(f"{src.title} {facts.get('ABSTRACT', '')}", terms)
@@ -173,7 +197,48 @@ class CampaignRunner:
         ranked.sort()
         return [(sid, url) for _t, _r, sid, url in ranked[:self.limits.docs_per_round]]
 
+    def _video_description(self, source_id: int):
+        """A YouTube video is read through its API metadata: title + description (never downloaded or scraped)."""
+        with session_scope(self.engine) as s:
+            src = s.get(Source, source_id)
+            facts = {f.fact_type: f.value for f in s.scalars(select(SourceFact).where(
+                SourceFact.source_id == source_id))}
+            if "ID_YOUTUBE" not in facts:
+                return None, False
+            text = f"{src.title}\n\nChannel: {src.author}\n\n{facts.get('ABSTRACT', '')}".strip()
+            s.add(FetchLog(source_id=source_id, page_url=src.url, request_url=src.url, status_code=200,
+                           content_type="text/plain", retrieval_method="API_METADATA"))
+            src.retrieved_at, src.access_status = datetime.now(UTC), AccessStatus.OK
+            result = parse_bytes(text.encode("utf-8"), name="youtube-description.txt", content_type="text/plain")
+            src.format = "youtube-description"
+            return result, True
+
+    def _local_file(self, source_id: int):
+        """Sources from sources.txt can be files on this computer: parsed read-only, never uploaded."""
+        with session_scope(self.engine) as s:
+            src = s.get(Source, source_id)
+            if not src.local_path or src.url:
+                return None, False
+            path = Path(src.local_path)
+            s.add(FetchLog(source_id=source_id, request_url=f"file:{src.local_path}", retrieval_method="LOCAL_FILE",
+                           error=None if path.is_file() else "FILE_NOT_FOUND"))
+            src.retrieved_at = datetime.now(UTC)
+            if not path.is_file():
+                src.access_status = AccessStatus.ERROR
+                return None, True
+            result = parse_file(path)
+            apply_result(src, result)
+            src.access_status = result.access_status
+            _reapply_title(s, src)
+            return result, True
+
     def _fetch_into(self, cid: int, source_id: int, url: str):
+        video, is_video = self._video_description(source_id)
+        if is_video:
+            return video
+        local, is_local = self._local_file(source_id)
+        if is_local:
+            return local
         resp = self.fetcher.fetch(url)
         with session_scope(self.engine) as s:
             src = s.get(Source, source_id)
@@ -188,6 +253,7 @@ class CampaignRunner:
             apply_result(src, result)
             if result.access_status is not AccessStatus.OK:
                 src.access_status = result.access_status
+            _reapply_title(s, src)
             return result
 
     def _deepen(self, cid: int, idea_id: int, budget: CampaignBudget) -> dict[str, int]:
@@ -202,8 +268,9 @@ class CampaignRunner:
                                     f"{name} post publication decay"]),
                  ("RECENT", [f"{name} {year - 2}", f"{name} {year - 1}"])]
         counts = {"REPLICATES": 0, "SUPPORTS": 0, "CONTRADICTS": 0, "UNRELATED": 0, "UNCLEAR": 0}
+        papers_only = [c for c in self.connectors if c.name != "youtube"]  # evidence comes from papers
         for purpose, queries in plans:
-            rep = run_discovery(self.engine, self.connectors, queries, budget, limit_per_query=5,
+            rep = run_discovery(self.engine, papers_only, queries, budget, limit_per_query=5,
                                 memory_days=self.settings.discovery.search_memory_days, campaign_id=cid,
                                 purpose=purpose)
             if rep.stopped_reason:
@@ -279,8 +346,9 @@ class CampaignRunner:
                 for n, (sid, url) in enumerate(chosen, 1):
                     budget.spend("documents")
                     with session_scope(self.engine) as s:
-                        title = s.get(Source, sid).title
-                    self._note(cid, budget, "read", f"[{n}/{len(chosen)}] {title[:160]}", current_title=title[:300])
+                        src = s.get(Source, sid)
+                        title = src.title + (" (YouTube video)" if "youtube.com/watch" in (src.url or "") else "")
+                    self._note(cid, budget, "read", f"[{n}/{len(chosen)}] {title[:180]}", current_title=title[:300])
                     result = self._fetch_into(cid, sid, url)
                     done_docs.add(sid)
                     report.documents_processed += 1
@@ -375,6 +443,14 @@ class CampaignRunner:
             prog.update(phase="done", current=c.stop_reason)
             state["progress"] = prog
             c.state = state
+
+
+def _reapply_title(s, src: Source) -> None:
+    """A title given in sources.txt wins over the document's own metadata title."""
+    override = s.scalars(select(SourceFact.value).where(SourceFact.source_id == src.id,
+                                                        SourceFact.fact_type == "TITLE_OVERRIDE")).first()
+    if override:
+        src.title = override
 
 
 def _budget_from_reason(reason: str) -> BudgetExhausted:
