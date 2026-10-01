@@ -18,7 +18,9 @@ qsd db init
 
 ## 2. Configure (once)
 
-Create `.env` (copy `.env.example`) with your AI key(s): `DEEPSEEK_API_KEY=...` (optional: `ANTHROPIC_API_KEY`).
+Set your AI key(s) as environment variables — Windows: `setx DEEPSEEK_API_KEY "sk-..."` then open a new terminal;
+Linux/macOS: `export DEEPSEEK_API_KEY=...` (optional: `ANTHROPIC_API_KEY`). A `.env` file is **not** read
+automatically; `.env.example` only lists the variable names.
 
 Create `config/local.yaml` (not committed):
 
@@ -43,6 +45,9 @@ A model without a price is never called. All budgets are hard caps checked *befo
 qsd campaign "Find crash-protection ETF strategies" --dry-run   # see how the request is understood
 qsd campaign "Find crash-protection ETF strategies"             # search → fetch → extract → score → deepen
 qsd campaign --resume 1                                          # continue (never repeats paid work)
+qsd score                                                        # list ideas with status, quality, coverage
+qsd reground                                                     # re-check stored AI answers with current
+                                                                 # fact-check rules (no AI cost), then re-score
 qsd web                                                          # dashboard: http://127.0.0.1:8765/
 qsd queue --submit-ready                                         # hand eligible packages to the backtest queue
 ```
@@ -55,7 +60,8 @@ The Quant Auto OS reads `data/backtest_queue/pending/*.json`. Every package says
 
 ## Safeguards (not configurable off)
 robots.txt and rate limits respected · no paywall/CAPTCHA/login circumvention · retrieved text treated as untrusted
-data · secrets never logged · AI output grounded against verbatim quotes (unverifiable values become UNKNOWN) ·
+data · secrets never logged · AI output grounded against source quotes (unverifiable values become UNKNOWN; what was removed is shown on the
+idea page) ·
 performance stored only as source claims · no broker or live-trading path.
 
 ## Status

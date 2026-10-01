@@ -25,3 +25,5 @@
 | D21 | 2026-09-30 | Backtest queue is a folder of JSON files (pending/) with a published JSON Schema | Simple, inspectable, decoupled from the Quant Auto OS; no network path to brokers |
 | D22 | 2026-09-30 | Found papers are linked as SUPPORTS/REPLICATES/CONTRADICTS only after a grounded abstract check | A search hit is not evidence; avoids fabricated evidence links |
 | D23 | 2026-09-30 | One CampaignBudget shared by discovery, fetching and the AI gateway; progress in campaigns.state | Hard caps across all spend; safe resume |
+| D24 | 2026-10-01 | Grounding tolerates small copying slips in quotes ≥ 6 words (≥ 85% of words in order, one short stretch, numbers exact) and stores the source's wording | First live run: correct values were removed for small wording differences; kept quotes stay verbatim source text |
+| D25 | 2026-10-01 | NEEDS_REVIEW = unreliable extraction (≥ 50% of ≥ 4 offered values failed) or injection text; removed values are recorded in `ideas.grounding`, not as red flags | Removed values are already harmless; blocking review on 3 removals stopped all deepening |

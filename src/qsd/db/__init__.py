@@ -40,6 +40,7 @@ MIGRATIONS: dict[int, list[str]] = {
     1: ["ALTER TABLE ideas ADD COLUMN score_details JSON NOT NULL DEFAULT '{}'"],
     2: ["ALTER TABLE campaigns ADD COLUMN spec JSON NOT NULL DEFAULT '{}'",
         "ALTER TABLE campaigns ADD COLUMN state JSON NOT NULL DEFAULT '{}'"],
+    3: ["ALTER TABLE ideas ADD COLUMN grounding JSON NOT NULL DEFAULT '{}'"],
 }
 
 

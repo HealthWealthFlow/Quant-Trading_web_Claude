@@ -172,17 +172,85 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_scores(results) -> None:
+    for r in results:
+        print(f"idea {r.idea_id:>5}  {r.status:<24} quality {r.idea_quality:5.1f} (coverage {r.coverage:.0%})  "
+              f"priority {r.priority:5.1f}  band {r.band}" + (f"  HARD FAIL: {', '.join(r.hard_fails)}"
+                                                               if r.hard_fails else ""))
+
+
 def _cmd_score(args: argparse.Namespace) -> int:
     from .scoring import score_all, score_idea
 
     s = load_settings()
     engine = make_engine(_db_path(args))
     init_db(engine)
-    results = [score_idea(engine, s, args.idea)] if args.idea else score_all(engine, s)
-    for r in results:
-        print(f"idea {r.idea_id:>5}  {r.status:<24} quality {r.idea_quality:5.1f} (coverage {r.coverage:.0%})  "
-              f"priority {r.priority:5.1f}  band {r.band}" + (f"  HARD FAIL: {', '.join(r.hard_fails)}"
-                                                               if r.hard_fails else ""))
+    _print_scores([score_idea(engine, s, args.idea)] if args.idea else score_all(engine, s))
+    return 0
+
+
+def _load_document(engine, settings, source_id: int, fetcher):
+    """Re-read a source's document: local file, or the URL it was fetched from (HTTP cache, no AI)."""
+    from sqlalchemy import select
+
+    from .db.models import FetchLog, Source
+    from .handlers import parse_bytes
+
+    with session_scope(engine) as sess:
+        src = sess.get(Source, source_id)
+        local, expected = src.local_path, src.content_hash
+        url = sess.scalars(select(FetchLog.request_url).where(
+            FetchLog.source_id == source_id, FetchLog.status_code == 200).order_by(FetchLog.id.desc())).first()
+    if local:
+        result = parse_file(local)
+    elif url:
+        resp = fetcher.fetch(url)
+        if not resp.ok:
+            return None, f"could not re-read {url}: {resp.error or resp.access_status.value}"
+        result = parse_bytes(resp.content, name=resp.final_url, content_type=resp.content_type,
+                             base_url=resp.final_url)
+    else:
+        return None, "no local file or successful fetch recorded"
+    if expected and result.sha256 != expected:
+        return None, "document changed since extraction; run a new extraction instead"
+    return result, None
+
+
+def _cmd_reground(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
+    from .ai import reground_source
+    from .db.models import AICall
+    from .scoring import score_idea
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    with session_scope(engine) as sess:
+        ids = [args.source] if args.source else sorted(set(sess.scalars(select(AICall.source_id).where(
+            AICall.task == "stage_b_extract", AICall.success.is_(True), AICall.source_id.is_not(None)))))
+    if not ids:
+        print("No stored AI extractions to re-check.")
+        return 0
+    touched: list[int] = []
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
+        for sid in ids:
+            result, problem = _load_document(engine, s, sid, fetcher)
+            if result is None:
+                print(f"source {sid}: skipped ({problem})")
+                continue
+            rep = reground_source(engine, s, sid, result)
+            if rep.skipped_reason:
+                print(f"source {sid}: skipped ({rep.skipped_reason})")
+            for c in rep.changes:
+                b, a = c["before"], c["after"]
+                print(f"source {sid}: idea {c['idea_id']}  {b['status']} -> {a['status']}  "
+                      f"removed values {b['removed']} -> {a['removed']}"
+                      + (f"  (quotes realigned: {', '.join(c['realigned'])})" if c["realigned"] else ""))
+            touched += rep.idea_ids
+    if touched:
+        print("\nRe-scored (no AI calls were made):")
+        _print_scores([score_idea(engine, s, i) for i in touched])
     return 0
 
 
@@ -321,6 +389,11 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--force-deep", action="store_true", help="run stage B even if triage says not promising")
     ex.add_argument("--db", help="database path or SQLAlchemy URL")
     ex.set_defaults(func=_cmd_extract)
+    rg = sub.add_parser("reground", help="re-check stored AI extractions with the current grounding rules (no AI "
+                                         "cost) and re-score the ideas")
+    rg.add_argument("--source", type=int, help="one source id (default: every source with a stored extraction)")
+    rg.add_argument("--db", help="database path or SQLAlchemy URL")
+    rg.set_defaults(func=_cmd_reground)
     sco = sub.add_parser("score", help="score ideas deterministically and move them through the status pipeline")
     sco.add_argument("--idea", type=int, help="score one idea (default: all)")
     sco.add_argument("--db", help="database path or SQLAlchemy URL")

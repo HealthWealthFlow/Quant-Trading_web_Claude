@@ -15,6 +15,7 @@ from qsd.ai import (
     extract_ideas,
     ground_strategy,
     quote_in_source,
+    reground_source,
 )
 from qsd.ai.schemas import ExtractedStrategy
 from qsd.ai.sections import select_relevant
@@ -189,7 +190,8 @@ def test_quote_matching_tolerates_whitespace_case_and_ellipsis():
 
 def test_grounding_removes_fabrications():
     st = ExtractedStrategy.model_validate(STAGE_B["strategies"][0])
-    flags = ground_strategy(st, SOURCE_TEXT)
+    rep = ground_strategy(st, SOURCE_TEXT)
+    flags = rep.flags
     assert st.rules["signal"].value == "positive 12-month excess return"
     assert st.rules["rebalance"].value == "monthly"
     assert st.rules["stop_rule"].value == UNKNOWN          # quote not in source
@@ -206,6 +208,60 @@ def test_grounding_removes_fabrications():
     assert "stop_rule" in st.unknown_rules and "entry_rule" in st.unknown_rules
     assert any(f.startswith("UNGROUNDED_VALUE_REMOVED:stop_rule") for f in flags)
     assert any(f.startswith("UNSUPPORTED_NUMBER_REMOVED:lookback") for f in flags)
+    removed = {r["field"]: r for r in rep.removed}
+    assert removed["stop_rule"] == {"field": "stop_rule", "value": "exit after 10% loss", "quote": "stop loss of 10%",
+                                    "location": "p.2", "reason": "QUOTE_NOT_FOUND"}
+    assert removed["lookback"]["reason"] == "NUMBER_NOT_IN_SOURCE"
+    assert removed["claimed_cagr"]["reason"] == "NUMBER_NOT_IN_SOURCE"
+    assert removed["regime:CRASH"]["quote"] == "always profits in crashes"
+    assert set(removed) == {"stop_rule", "lookback", "parameter:threshold", "claimed_cagr", "regime:CRASH"}
+    assert (rep.attempted, rep.problems) == (10, 5) and rep.needs_review  # half of what the model offered failed
+
+
+LONG_SOURCE = ("We hold a broad stock and bond index fund in a tax deferred retirement account that is rebalanced "
+               "annually. Each year, 10% of the account is allocated towards an inverse stock fund.")
+
+
+def _one_rule(key, value, quote):
+    return ExtractedStrategy.model_validate({"strategy_name": "x", "rules": {key: {"value": value,
+                                                                                  "evidence_quote": quote}}})
+
+
+def test_small_copying_slips_are_realigned_to_source_wording():
+    # dropped "that is", "a" → "the": same words, same order, one stretch
+    st = _one_rule("rebalance", "annually", "hold the broad stock and bond index fund in a tax deferred retirement "
+                                            "account rebalanced annually")
+    rep = ground_strategy(st, LONG_SOURCE)
+    assert st.rules["rebalance"].value == "annually"
+    assert st.rules["rebalance"].evidence_quote == ("hold a broad stock and bond index fund in a tax deferred "
+                                                    "retirement account that is rebalanced annually.")
+    assert rep.realigned == 1 and "QUOTE_REALIGNED:rebalance" in rep.flags and not rep.removed
+
+
+def test_alignment_never_approximates_numbers_or_short_quotes():
+    st = _one_rule("position_sizing", "20%", "Each year, 20% of the account is allocated towards an inverse fund")
+    assert ground_strategy(st, LONG_SOURCE).removed[0]["reason"] == "QUOTE_NOT_FOUND"
+    st = _one_rule("rebalance", "annually", "rebalanced every year")  # paraphrase, too short to align
+    assert ground_strategy(st, LONG_SOURCE).removed and st.rules["rebalance"].value == UNKNOWN
+    st = _one_rule("universe", "stocks", "we buy small cap stocks with high momentum and hold them for a year")
+    assert ground_strategy(st, LONG_SOURCE).removed  # unrelated sentence
+
+
+def test_claim_number_must_be_in_its_own_quote():
+    st = ExtractedStrategy.model_validate({"strategy_name": "x", "claims": {"claimed_sharpe": {
+        "value": "10", "evidence_quote": "rebalanced annually"}}})  # 10 is in the source, not in this quote
+    rep = ground_strategy(st, LONG_SOURCE)
+    assert st.claims == {} and rep.removed[0]["reason"] == "CLAIM_NUMBER_NOT_IN_QUOTE"
+
+
+def test_a_few_removed_values_do_not_trigger_review():
+    rules = {"instrument": {"value": "index funds", "evidence_quote": "broad stock and bond index fund"},
+             "rebalance": {"value": "annually", "evidence_quote": "rebalanced annually"},
+             "position_sizing": {"value": "10%", "evidence_quote": "10% of the account"},
+             "stop_rule": {"value": "5% stop", "evidence_quote": "a 5% stop loss"}}
+    st = ExtractedStrategy.model_validate({"strategy_name": "x", "rules": rules})
+    rep = ground_strategy(st, LONG_SOURCE)
+    assert (rep.attempted, rep.problems) == (4, 1) and not rep.needs_review
 
 
 def test_section_selection_respects_budget_and_keeps_locations():
@@ -234,7 +290,10 @@ def test_extract_ideas_end_to_end(engine):
         assert idea.rebalance == "monthly" and idea.stop_rule == UNKNOWN and idea.lookback == UNKNOWN
         assert idea.claimed_sharpe == "1.2" and idea.claimed_cagr is None
         assert idea.idea_quality_score is None  # scoring is M6, never guessed here
-        assert idea.status is IdeaStatus.NEEDS_REVIEW  # several grounding flags
+        assert idea.status is IdeaStatus.NEEDS_REVIEW  # half of the offered values failed grounding
+        assert "UNRELIABLE_EXTRACTION" in idea.red_flags
+        assert not any(f.startswith("UNGROUNDED") for f in idea.red_flags)  # reported in idea.grounding instead
+        assert len(idea.grounding["removed"]) == 5 and idea.grounding["prompt_version"] == "b2"
         regimes = {r.regime: r for r in idea.regimes}
         assert regimes[MarketRegime.BEARISH].suitability is RegimeSuitability.SUITED
         assert regimes[MarketRegime.BEARISH].source_fact_id is not None
@@ -269,3 +328,66 @@ def test_rerun_extraction_hits_cache(engine):
     extract_ideas(gw, engine, settings(), sid, result)
     rep2 = extract_ideas(gw, engine, settings(), sid, result)
     assert len(fake.calls) == 2 and rep2.cost_usd == 0  # second run fully served from cache
+
+
+GOOD_B = {"strategies": [{
+    "strategy_name": "Time-series momentum", "summary": "Long positive 12m return assets",
+    "asset_classes": ["FUTURES"], "position_direction": "LONG_SHORT",
+    "rules": {
+        "signal": {"value": "positive 12-month excess return",
+                   "evidence_quote": "long assets with positive 12-month excess return", "location": "p.1"},
+        # small copying slip ("get" for "are"): realigned to the source's wording
+        "rebalance": {"value": "monthly", "evidence_quote": "Positions get rebalanced monthly. The strategy earned a",
+                      "location": "p.2"},
+        "stop_rule": {"value": "exit after 10% loss", "evidence_quote": "stop loss of 10%", "location": "p.2"},
+    },
+    "parameters": [{"name": "lookback_months", "value": "12", "evidence_quote": "12-month excess return"}],
+    "claims": {"claimed_sharpe": {"value": "1.2", "evidence_quote": "earned a Sharpe ratio of 1.2"}},
+    "regimes": [{"regime": "BEARISH", "suitability": "SUITED", "basis": "SOURCE_STATED", "confidence": 0.9,
+                 "evidence_quote": "performs best in extended bear markets", "location": "p.3"}],
+}]}
+
+
+def _source(engine, title="TSMOM"):
+    with session_scope(engine) as s:
+        src = Source(title=title)
+        s.add(src)
+        s.flush()
+        return src.id
+
+
+def test_reground_fixes_old_ideas_without_calling_the_model(engine):
+    result = parse_bytes(make_pdf(PAGES), name="tsmom.pdf")
+    sid = _source(engine)
+    fake = FakeProvider([STAGE_A, GOOD_B])
+    rep = extract_ideas(AIGateway(engine, settings(), {"fake": fake}), engine, settings(), sid, result)
+    iid = rep.idea_ids[0]
+    with session_scope(engine) as s:
+        idea = s.get(Idea, iid)
+        assert idea.status is IdeaStatus.DISCOVERED and idea.rebalance == "monthly"  # 1 of 6 removed: no review
+        assert idea.grounding["realigned"] == ["rebalance"]
+        # make it look like an idea stored by the old (exact-only, 3-flag) rules
+        idea.rebalance, idea.status, idea.grounding = UNKNOWN, IdeaStatus.NEEDS_REVIEW, {}
+        idea.red_flags = ["UNGROUNDED_VALUE_REMOVED:rebalance", "UNGROUNDED_VALUE_REMOVED:stop_rule",
+                          "UNSUPPORTED_NUMBER_REMOVED:lookback", "PROMISSORY_LANGUAGE"]
+
+    for _ in range(2):  # idempotent
+        rg = reground_source(engine, settings(), sid, result)
+    assert len(fake.calls) == 2  # the model was not called again
+    assert rg.idea_ids == [iid]
+    with session_scope(engine) as s:
+        idea = s.get(Idea, iid)
+        assert idea.rebalance == "monthly" and idea.stop_rule == UNKNOWN
+        assert idea.status is IdeaStatus.DISCOVERED
+        assert idea.red_flags == ["PROMISSORY_LANGUAGE"]  # non-grounding flags survive
+        assert [r["field"] for r in idea.grounding["removed"]] == ["stop_rule"]
+        fact = s.scalars(select(SourceFact).where(SourceFact.idea_id == iid,
+                                                  SourceFact.fact_type == "REBALANCE")).one()  # no duplicates
+        assert fact.quote.startswith("Positions are rebalanced monthly")
+        assert {r.regime: r for r in idea.regimes}[MarketRegime.BEARISH].source_fact_id is not None
+
+
+def test_reground_without_stored_extraction_is_skipped(engine):
+    sid = _source(engine)
+    rg = reground_source(engine, settings(), sid, parse_bytes(make_pdf(PAGES), name="x.pdf"))
+    assert rg.skipped_reason == "NO_STORED_EXTRACTION" and not rg.idea_ids

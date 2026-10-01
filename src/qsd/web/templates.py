@@ -107,6 +107,15 @@ horizon {{ idea.time_horizon.value|lower }}</p>
 {% if not pkg.concerns.red_flags and not idea.hard_fail_reasons %}<span class="muted">None detected.</span>{% endif %}
 <p class="muted">Not assessed (unscored, not guessed): {{ iq.unscored_components|join(', ') or 'none' }}</p>
 <p class="muted">Missing rules: {{ pkg.unknown_rules|join(', ') or 'none' }}</p></div>
+{% set g = pkg.grounding %}{% if g %}<div class="panel"><h2 style="margin-top:0">Removed by fact-check</h2>
+<p class="muted">{{ g.removed|length }} of {{ g.values_offered }} values the AI offered were removed because the quote
+or a number was not found in the source ({{ g.model }}, prompt {{ g.prompt_version }}). They are not facts; check them
+against the source if they look right.{% if g.realigned %} Quotes matched after small wording fixes:
+{{ g.realigned|join(', ') }}.{% endif %}</p>
+{% for r in g.removed %}<p><b>{{ r.field }}</b>: {{ r.value }} <span class="badge neutral"><span class="dot"></span>
+{{ r.reason|lower|replace('_',' ') }}</span>{% if r.quote %}<br><span class="quote">AI quote: “{{ r.quote }}”</span>
+{% endif %}{% if r.location %} <span class="muted">{{ r.location }}</span>{% endif %}</p>
+{% else %}<p class="muted">Nothing was removed.</p>{% endfor %}</div>{% endif %}
 <div class="panel"><h2 style="margin-top:0">Source &amp; provenance</h2>{% set ps = pkg.provenance.primary_source %}
 {% if ps %}<p><b>{{ ps.title }}</b><br>{{ ps.author }} · {{ ps.publication_date }} · tier {{ ps.tier or 'unrated' }}
 · access {{ ps.access_status|lower }}<br>{% if ps.doi %}DOI {{ ps.doi }} · {% endif %}

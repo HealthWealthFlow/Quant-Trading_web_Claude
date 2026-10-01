@@ -157,6 +157,12 @@
       "title": "Source Claims",
       "type": "object"
     },
+    "grounding": {
+      "additionalProperties": true,
+      "description": "AI extraction audit: values the model offered that were removed because their quote or numbers were not found in the source (with the model's quote and the reason). Removed values are NOT facts.",
+      "title": "Grounding",
+      "type": "object"
+    },
     "scores": {
       "additionalProperties": true,
       "title": "Scores",
