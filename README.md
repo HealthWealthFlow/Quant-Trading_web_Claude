@@ -48,7 +48,7 @@ qsd campaign --resume 1                                          # continue (nev
 qsd score                                                        # list ideas with status, quality, coverage
 qsd reground                                                     # re-check stored AI answers with current
                                                                  # fact-check rules (no AI cost), then re-score
-qsd web                                                          # dashboard: http://127.0.0.1:8765/
+qsd web                                                          # dashboard: http://127.0.0.1:8877/
 qsd queue --submit-ready                                         # hand eligible packages to the backtest queue
 ```
 

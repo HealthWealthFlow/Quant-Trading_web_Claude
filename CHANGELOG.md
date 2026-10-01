@@ -1,8 +1,9 @@
 # Changelog
 
-## Windows launcher (2026-10-01)
+## Windows launcher, own port (2026-10-01)
+- Dashboard default port is now 8877 (was 8765, which can clash with other local dashboards).
 - `dashboard.bat`: double-click to start the dashboard and open the browser; if it is already running, just opens
-  the browser. `.gitattributes` keeps Windows line endings for `.bat` files.
+  the browser, after checking that the program on that port really is the QSD dashboard. `.gitattributes` keeps Windows line endings for `.bat` files.
 
 ## Fix: `qsd reground` hung on a slow website (2026-10-01)
 - `reground` reads the saved download (HTTP cache) first and only downloads again when no copy exists; prints
