@@ -70,6 +70,7 @@ def test_v1_database_migrates_without_data_loss(tmp_path):
     con.execute("ALTER TABLE ideas DROP COLUMN score_details")
     con.execute("ALTER TABLE campaigns DROP COLUMN spec")
     con.execute("ALTER TABLE campaigns DROP COLUMN state")
+    con.execute("ALTER TABLE ideas DROP COLUMN grounding")
     con.execute("UPDATE schema_meta SET value='1' WHERE key='schema_version'")
     con.commit()
     con.close()
@@ -77,7 +78,7 @@ def test_v1_database_migrates_without_data_loss(tmp_path):
     assert init_db(eng2) == SCHEMA_VERSION
     with session_scope(eng2) as s:
         idea = s.scalars(select(Idea)).one()
-        assert idea.strategy_name == "kept" and idea.score_details == {}
+        assert idea.strategy_name == "kept" and idea.score_details == {} and idea.grounding == {}
 
 
 def test_idea_defaults_are_unknown_not_guessed(engine):

@@ -45,7 +45,7 @@ from ..taxonomy import (
     TimeHorizon,
 )
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MAX_QUOTE_CHARS = 300  # copyright: short necessary quotations only (spec §108)
 
 
@@ -246,6 +246,9 @@ class Idea(Base):
     next_research_action: Mapped[str] = _unknown_text()
     # v2: per-component score breakdown, coverage and bases (spec §52, §81); written only by qsd.scoring
     score_details: Mapped[dict] = mapped_column(default=dict)
+    # v4: grounding outcome of the AI extraction — values removed (with the model's quote and the reason),
+    # values offered/failed, quotes realigned to source wording; written only by qsd.ai.extract
+    grounding: Mapped[dict] = mapped_column(default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

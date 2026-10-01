@@ -1,5 +1,19 @@
 # Changelog
 
+## Fact-check tuning after the first live run (2026-10-01)
+- Grounding accepts a quote of ≥ 6 words when ≥ 85% of its words occur in order in one short stretch of the source
+  and every number in it matches exactly; the stored quote is replaced by the source's own wording. Short quotes and
+  numbers still need an exact match.
+- Every removed value is saved with the model's quote, location and reason (`ideas.grounding`, schema v4,
+  auto-migration) and shown on the idea page ("Removed by fact-check") and in the package (`grounding`, v1.1).
+- NEEDS_REVIEW now means the extraction was unreliable (≥ half of ≥ 4 offered values failed) or the document
+  contains injection text — not "3 values removed". Removed values are no longer listed as red flags of the strategy.
+- Stage-B prompt b2: shortest exact quote, definitions of timeframe / data frequency / holding period / rebalance,
+  SUITED only when the source reports favourable returns in that market direction.
+- `qsd reground [--source ID]`: re-applies the current rules to stored AI answers (no AI call; document re-read from
+  the local file or HTTP cache, refused if it changed) and re-scores the ideas.
+- README: API keys are environment variables; `.env` is not read automatically. 132 tests.
+
 ## M9 — Campaign runner (2026-09-30) — Phase 1 complete
 - `qsd.campaign`: plain-English request → stored spec (assets, market directions, families, mode, target) with
   `--dry-run`; loop discover → rank unfetched candidates (tier + abstract relevance) → fetch (PDF link first) →

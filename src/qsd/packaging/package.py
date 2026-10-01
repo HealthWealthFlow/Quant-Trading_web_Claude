@@ -22,7 +22,7 @@ from ..db import session_scope
 from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Source, SourceFact
 from ..taxonomy import UNKNOWN, IdeaSourceRole, IdeaStatus, MarketRegime, RegimeSuitability, TimeHorizon
 
-PACKAGE_VERSION = "1.0"
+PACKAGE_VERSION = "1.1"  # 1.1: + grounding
 DOWNSTREAM_WARNING = ("EXTERNAL PERFORMANCE CLAIMS ARE NOT VALIDATED. "
                       "DOWNSTREAM SYSTEM MUST RECOMPUTE EVERYTHING.")  # spec §124
 
@@ -83,6 +83,9 @@ class ResearchPackage(BaseModel):
     downstream_checks: list[str]
     concerns: dict[str, list[str]]
     source_claims: dict[str, Any] = Field(description="Unvalidated performance claims, verbatim from the source.")
+    grounding: dict[str, Any] = Field(default_factory=dict, description=(
+        "AI extraction audit: values the model offered that were removed because their quote or numbers were not "
+        "found in the source (with the model's quote and the reason). Removed values are NOT facts."))
     scores: dict[str, Any]
     research_completeness: dict[str, Any]
     handoff: dict[str, Any]
@@ -225,6 +228,7 @@ def build_package(engine: Engine, settings: Settings, idea_id: int) -> ResearchP
             concerns=concerns,
             source_claims={"note": "Verbatim source claims. NOT VALIDATED. Do not use for ranking or sizing.",
                            "claims": claims},
+            grounding=dict(idea.grounding or {}),
             scores={"idea_quality": idea.idea_quality_score, "idea_quality_normalized": iq.get("normalized"),
                     "coverage": iq.get("coverage"), "unscored_components": iq.get("unscored", []),
                     "source_quality": idea.source_quality, "evidence_quality": idea.evidence_quality,

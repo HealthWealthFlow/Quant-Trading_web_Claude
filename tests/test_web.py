@@ -34,7 +34,11 @@ def client(tmp_path):
         idea = new_idea(primary_source_id=src.id, strategy_name=f"TSMOM {EVIL}", asset_classes=["ETF"],
                         strategy_families=["TIME-SERIES MOMENTUM"], time_horizon=TimeHorizon.MONTHLY,
                         instrument="SPY", signal="12-month return > 0", entry_rule="buy when 12-month return > 0",
-                        exit_rule="sell when < 0", claimed_cagr="25%")
+                        exit_rule="sell when < 0", claimed_cagr="25%",
+                        grounding={"model": "deepseek-chat", "prompt_version": "b2", "values_offered": 8, "problems": 1,
+                                   "needs_review": False, "realigned": ["signal"],
+                                   "removed": [{"field": "stop_rule", "value": "10% stop", "quote": f"stop {EVIL}",
+                                                "location": "p.4", "reason": "QUOTE_NOT_FOUND"}]})
         for r in idea.regimes:
             if r.regime is MarketRegime.CRASH:
                 r.suitability, r.basis, r.confidence = RegimeSuitability.SUITED, RegimeBasis.SOURCE_STATED, 0.9
@@ -90,3 +94,11 @@ def test_read_only(client):
     c, iid = client
     assert c.post("/ideas").status_code == 405
     assert c.get("/ideas/999999").status_code == 404
+
+
+def test_idea_page_lists_values_removed_by_fact_check(client):
+    c, iid = client
+    html = c.get(f"/ideas/{iid}").text
+    assert "Removed by fact-check" in html and "1 of 8 values" in html
+    assert "stop_rule" in html and "10% stop" in html and "quote not found" in html and "p.4" in html
+    assert "small wording fixes" in html and EVIL not in html

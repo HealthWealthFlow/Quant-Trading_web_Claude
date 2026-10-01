@@ -7,23 +7,22 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, delete, select
 
 from ..config import Settings
 from ..db import new_idea, session_scope
-from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Source, SourceFact
+from ..db.models import AICache, AICall, Idea, IdeaSource, IdeaStatusHistory, Source, SourceFact
 from ..handlers import HandlerResult
 from ..security import INJECTION_FLAG, wrap_untrusted
-from ..taxonomy import UNKNOWN, ExtractionMethod, IdeaSourceRole, IdeaStatus
+from ..taxonomy import UNKNOWN, ExtractionMethod, IdeaSourceRole, IdeaStatus, RegimeBasis, RegimeSuitability
 from . import prompts
 from .gateway import AIGateway
-from .grounding import ground_strategy
-from .schemas import Evidenced, ExtractedStrategy, StageAResult, StageBResult
+from .grounding import GroundingReport, ground_strategy
+from .schemas import CLAIM_FIELDS, Evidenced, ExtractedStrategy, StageAResult, StageBResult
 from .sections import select_relevant
 
 _PAGE = re.compile(r"p\.(\d+)")
 _SLIDE = re.compile(r"slide (\d+)", re.I)
-REVIEW_FLAG_THRESHOLD = 3
 
 
 @dataclass
@@ -53,27 +52,43 @@ def _fact(source_id: int, idea_id: int, fact_type: str, ev: Evidenced) -> Source
                       extraction_method=ExtractionMethod.AI_STRONG, confidence=ev.confidence, **_loc(ev.location))
 
 
-def _store_strategy(s, source_id: int, campaign_id: int | None, st: ExtractedStrategy, flags: list[str],
-                    red_flags: list[str], model: str) -> int:
-    idea = new_idea(
-        campaign_id=campaign_id, primary_source_id=source_id, strategy_name=st.strategy_name[:500],
-        summary=st.summary[:4000], asset_classes=[a.value for a in st.asset_classes],
+GROUNDING_FLAG_PREFIXES = ("UNGROUNDED_VALUE_REMOVED:", "UNSUPPORTED_NUMBER_REMOVED:", "UNSUPPORTED_CLAIM_REMOVED:",
+                           "REGIME_EVIDENCE_NOT_FOUND:", "QUOTE_REALIGNED:")
+REVIEW_FLAG = "UNRELIABLE_EXTRACTION"  # at least half of the model's values failed grounding
+
+
+def _red_flags(other: list[str], unreliable: bool) -> list[str]:
+    """Removed values are reported in `idea.grounding`, not as red flags of the strategy."""
+    kept = [f for f in other if not f.startswith(GROUNDING_FLAG_PREFIXES) and f != REVIEW_FLAG]
+    return sorted(set(kept + ([REVIEW_FLAG] if unreliable else [])))
+
+
+def _grounding_record(rep: GroundingReport, model: str, prompt_version: str) -> dict:
+    return {"model": model, "prompt_version": prompt_version, "values_offered": rep.attempted,
+            "problems": rep.problems, "needs_review": rep.needs_review, "removed": rep.removed,
+            "realigned": [f.split(":", 1)[1] for f in rep.flags if f.startswith("QUOTE_REALIGNED:")]}
+
+
+def _apply_strategy(s, idea: Idea, source_id: int, st: ExtractedStrategy, rep: GroundingReport,
+                    red_flags: list[str], model: str, prompt_version: str) -> None:
+    """Write one grounded strategy onto `idea` (new or existing) plus its provenance facts and regime rows."""
+    for k, v in dict(
+        strategy_name=st.strategy_name[:500], summary=st.summary[:4000],
+        asset_classes=[a.value for a in st.asset_classes],
         strategy_families=[f.upper() for f in st.strategy_families][:10], position_direction=st.position_direction,
         time_horizon=st.time_horizon, parameters={p.name: p.value for p in st.parameters},
         data_required=st.data_required[:30], unknown_rules=st.unknown_rules,
-        economic_rationale=st.rationale.value, rationale_confidence=st.rationale.confidence if
-        st.rationale.value != UNKNOWN else None,
-        red_flags=sorted(set(red_flags + flags)), search_depth_level=0,
+        economic_rationale=st.rationale.value,
+        rationale_confidence=st.rationale.confidence if st.rationale.value != UNKNOWN else None,
+        red_flags=_red_flags(red_flags, rep.needs_review),
+        grounding=_grounding_record(rep, model, prompt_version),
         **{k: v.value for k, v in st.rules.items()},
-        **{k: v.value for k, v in st.claims.items()},
-    )
-    if len(flags) >= REVIEW_FLAG_THRESHOLD or INJECTION_FLAG in red_flags:
-        idea.status = IdeaStatus.NEEDS_REVIEW
-    s.add(idea)
+        **{k: st.claims[k].value if k in st.claims else None for k in CLAIM_FIELDS},
+    ).items():
+        setattr(idea, k, v)
+    if idea.id is None:
+        s.add(idea)
     s.flush()
-    s.add(IdeaStatusHistory(idea_id=idea.id, from_status=None, to_status=idea.status,
-                            reason=f"extracted by {model}; {len(flags)} grounding flag(s)"))
-    s.add(IdeaSource(idea_id=idea.id, source_id=source_id, role=IdeaSourceRole.DESCRIBES))
     for key, ev in st.rules.items():
         if ev.value != UNKNOWN:
             s.add(_fact(source_id, idea.id, key, ev))
@@ -88,6 +103,9 @@ def _store_strategy(s, source_id: int, campaign_id: int | None, st: ExtractedStr
         s.add(_fact(source_id, idea.id, "FAILURE_MODE", fm))
     s.flush()
     rows = {r.regime: r for r in idea.regimes}
+    for row in rows.values():
+        row.suitability, row.basis, row.confidence, row.source_fact_id = (
+            RegimeSuitability.UNKNOWN, RegimeBasis.UNKNOWN, 0.0, None)
     for j in st.regimes:
         row = rows[j.regime]
         row.suitability, row.basis, row.confidence = j.suitability, j.basis, j.confidence
@@ -98,6 +116,21 @@ def _store_strategy(s, source_id: int, campaign_id: int | None, st: ExtractedStr
             s.add(f)
             s.flush()
             row.source_fact_id = f.id
+
+
+def _needs_review(rep: GroundingReport, red_flags: list[str]) -> bool:
+    return rep.needs_review or INJECTION_FLAG in red_flags
+
+
+def _store_strategy(s, source_id: int, campaign_id: int | None, st: ExtractedStrategy, rep: GroundingReport,
+                    red_flags: list[str], model: str, prompt_version: str) -> int:
+    idea = new_idea(campaign_id=campaign_id, primary_source_id=source_id, search_depth_level=0)
+    _apply_strategy(s, idea, source_id, st, rep, red_flags, model, prompt_version)
+    if _needs_review(rep, red_flags):
+        idea.status = IdeaStatus.NEEDS_REVIEW
+    s.add(IdeaStatusHistory(idea_id=idea.id, from_status=None, to_status=idea.status,
+                            reason=f"extracted by {model}; {rep.problems}/{rep.attempted} value(s) failed grounding"))
+    s.add(IdeaSource(idea_id=idea.id, source_id=source_id, role=IdeaSourceRole.DESCRIBES))
     return idea.id
 
 
@@ -147,9 +180,88 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
     grounding_text = sel.text + ("\n" + abstract if abstract else "")
     with session_scope(engine) as s:
         for st in extraction.strategies:
-            flags = ground_strategy(st, grounding_text)
-            report.flags.extend(flags)
-            report.idea_ids.append(_store_strategy(s, source_id, campaign_id, st, flags, red_flags, ai.strong_model))
+            rep = ground_strategy(st, grounding_text)
+            report.flags.extend(rep.flags)
+            report.idea_ids.append(_store_strategy(s, source_id, campaign_id, st, rep, red_flags, ai.strong_model,
+                                                   prompts.STAGE_B_VERSION))
+    return report
+
+
+@dataclass
+class RegroundReport:
+    source_id: int
+    idea_ids: list[int] = field(default_factory=list)
+    changes: list[dict] = field(default_factory=list)  # per idea: status and removed count before/after
+    skipped_reason: str | None = None
+
+
+def stored_extraction(engine: Engine, source_id: int) -> tuple[StageBResult, str, str] | None:
+    """The latest successful stage-B answer for a source from the AI cache, with its model and prompt version."""
+    with session_scope(engine) as s:
+        calls = s.scalars(select(AICall).where(
+            AICall.source_id == source_id, AICall.task == "stage_b_extract", AICall.success.is_(True))
+            .order_by(AICall.id.desc())).all()
+        for call in calls:
+            cached = s.get(AICache, call.cache_key)
+            if cached is not None:
+                return StageBResult.model_validate(cached.response), call.model, call.prompt_version
+    return None
+
+
+def _removed_count(idea: Idea) -> int:
+    if idea.grounding:
+        return len(idea.grounding.get("removed", []))
+    return sum(f.startswith(GROUNDING_FLAG_PREFIXES[:4]) for f in idea.red_flags or [])  # pre-v4 ideas
+
+
+def reground_source(engine: Engine, settings: Settings, source_id: int, result: HandlerResult) -> RegroundReport:
+    """Re-run grounding (current rules) on the stored AI answer for `source_id` and update its ideas in place.
+
+    Costs nothing: the model is not called. Ideas are matched to the stored strategies by name; ideas already
+    submitted to the backtest queue are left untouched.
+    """
+    report = RegroundReport(source_id)
+    stored = stored_extraction(engine, source_id)
+    if stored is None:
+        report.skipped_reason = "NO_STORED_EXTRACTION"
+        return report
+    extraction, model, version = stored
+    with session_scope(engine) as s:
+        abstract = s.scalars(select(SourceFact.value).where(SourceFact.source_id == source_id,
+                                                            SourceFact.fact_type == "ABSTRACT")).first()
+        ideas = s.scalars(select(Idea).where(Idea.primary_source_id == source_id).order_by(Idea.id)).all()
+        if not ideas:
+            report.skipped_reason = "NO_IDEAS_FOR_SOURCE"
+            return report
+        sel = select_relevant(result, settings.ai.stage_b_max_chars)
+        grounding_text = sel.text + ("\n" + abstract if abstract else "")
+        for st in extraction.strategies:
+            for idea in [i for i in ideas if i.strategy_name == st.strategy_name[:500]]:
+                if idea.status is IdeaStatus.SUBMITTED_TO_BACKTEST:
+                    continue
+                strategy = st.model_copy(deep=True)
+                rep = ground_strategy(strategy, grounding_text)
+                before = {"status": idea.status.value, "removed": _removed_count(idea)}
+                for row in idea.regimes:
+                    row.source_fact_id = None
+                s.flush()
+                s.execute(delete(SourceFact).where(SourceFact.idea_id == idea.id,
+                                                   SourceFact.source_id == source_id,
+                                                   SourceFact.extraction_method == ExtractionMethod.AI_STRONG))
+                other = list(idea.red_flags or [])
+                _apply_strategy(s, idea, source_id, strategy, rep, other, model, version)
+                old = idea.status
+                if _needs_review(rep, other):
+                    idea.status = IdeaStatus.NEEDS_REVIEW
+                elif old is IdeaStatus.NEEDS_REVIEW:
+                    idea.status = IdeaStatus.DISCOVERED  # scoring moves it on
+                if idea.status is not old:
+                    s.add(IdeaStatusHistory(idea_id=idea.id, from_status=old, to_status=idea.status,
+                                            reason=f"re-grounded: {rep.problems}/{rep.attempted} value(s) failed"))
+                report.idea_ids.append(idea.id)
+                report.changes.append({"idea_id": idea.id, "before": before,
+                                       "after": {"status": idea.status.value, "removed": len(rep.removed)},
+                                       "realigned": idea.grounding["realigned"]})
     return report
 
 
