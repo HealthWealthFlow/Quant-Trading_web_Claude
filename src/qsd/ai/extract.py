@@ -16,7 +16,7 @@ from ..handlers import HandlerResult
 from ..security import INJECTION_FLAG, wrap_untrusted
 from ..taxonomy import UNKNOWN, ExtractionMethod, IdeaSourceRole, IdeaStatus, RegimeBasis, RegimeSuitability
 from . import prompts
-from .gateway import AIGateway
+from .gateway import AIGateway, AIOutputError
 from .grounding import GroundingReport, ground_strategy
 from .schemas import CLAIM_FIELDS, Evidenced, ExtractedStrategy, StageAResult, StageBResult
 from .sections import select_relevant
@@ -169,11 +169,21 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
 
     # Stage B: strong extraction on relevant sections only (spec §21, §86 B)
     sel = select_relevant(result, ai.stage_b_max_chars)
-    extraction, info = gw.run_json(task="stage_b_extract", prompt_version=prompts.STAGE_B_VERSION,
-                                   provider=ai.default_provider, model=ai.strong_model, system=prompts.SYSTEM,
-                                   user=prompts.stage_b_user(title, wrap_untrusted(sel.text, ref)),
-                                   schema=StageBResult, max_tokens=ai.stage_b_max_tokens, campaign_id=campaign_id,
-                                   source_id=source_id)
+    wrapped_sel = wrap_untrusted(sel.text, ref)
+
+    def stage_b(max_strategies: int):
+        return gw.run_json(task="stage_b_extract", prompt_version=prompts.STAGE_B_VERSION,
+                           provider=ai.default_provider, model=ai.strong_model, system=prompts.SYSTEM,
+                           user=prompts.stage_b_user(title, wrapped_sel, max_strategies),
+                           schema=StageBResult, max_tokens=ai.stage_b_max_tokens, campaign_id=campaign_id,
+                           source_id=source_id)
+
+    try:
+        extraction, info = stage_b(3)
+    except AIOutputError:
+        # Usually a long answer cut off at the output limit: ask once more for the single best-specified strategy.
+        extraction, info = stage_b(1)
+        report.flags.append("STAGE_B_RETRIED_SHORT")
     report.deep_read = True
     report.cost_usd += info.cost_usd
     red_flags += [f"TRIAGE_RED_FLAG:{f}"[:80] for f in triage.red_flags]

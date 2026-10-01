@@ -53,7 +53,7 @@ class AIConfig(BaseModel):
     stage_a_max_chars: int = Field(6000, gt=0)
     stage_b_max_chars: int = Field(40000, gt=0)
     stage_a_max_tokens: int = Field(800, gt=0)
-    stage_b_max_tokens: int = Field(6000, gt=0)
+    stage_b_max_tokens: int = Field(8000, gt=0)
     # A model without a price is never called: budgets could not be enforced (spec §45).
     prices: dict[str, ModelPrice | None] = Field(default_factory=dict)
 

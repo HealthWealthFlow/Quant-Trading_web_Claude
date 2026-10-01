@@ -9,7 +9,7 @@ from qsd.ai import AIGateway, ProviderResponse
 from qsd.campaign import CampaignLimits, CampaignRunner, parse_request
 from qsd.config import DEFAULT_CONFIG, load_settings
 from qsd.db import init_db, make_engine, session_scope
-from qsd.db.models import AICall, Campaign, Idea, IdeaSource
+from qsd.db.models import AICall, Campaign, Idea, IdeaSource, Source, SourceFact
 from qsd.discovery import OpenAlexConnector
 from qsd.fetch import PoliteFetcher
 from qsd.taxonomy import CampaignStatus, IdeaSourceRole
@@ -265,3 +265,39 @@ def test_guided_research_quit_and_decline(setup):
     assert rc == 0
     with session_scope(e) as sess:
         assert sess.scalars(select(Campaign)).first() is None  # declined: nothing started, nothing spent
+
+
+def test_queries_follow_the_request_not_generic_families():
+    from qsd.campaign.runner import plan_queries
+    from qsd.taxonomy import MarketRegime
+
+    spec = parse_request("support breakout with volume and follow by retracement strategy in bull market")
+    qs = plan_queries(spec, [], [MarketRegime(r) for r in spec.regimes], 8)
+    assert "breakout trading strategy" in qs and "breakout strategy bull market" in qs
+    assert "support breakout volume retracement trading strategy" in qs  # short form for arXiv
+    assert not any("earnings" in q or "cross sectional" in q for q in qs)  # no unrelated generic families
+
+
+def test_selection_skips_non_finance_papers_and_prefers_free_pdfs(setup):
+    from qsd.campaign.parse import CampaignSpec
+    from qsd.taxonomy import AccessStatus, ExtractionMethod
+
+    s, e, runner, ai = setup
+    cid = runner.create("breakout strategies")
+    with session_scope(e) as sess:
+        def add(title, abstract, pdf=None, tier=1):
+            src = Source(title=title, url=f"https://x.example/{len(title)}", campaign_id=cid, tier=tier,
+                         access_status=AccessStatus.NOT_FETCHED)
+            sess.add(src)
+            sess.flush()
+            sess.add(SourceFact(source_id=src.id, fact_type="ABSTRACT", value=abstract,
+                                extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1))
+            if pdf:
+                sess.add(SourceFact(source_id=src.id, fact_type="PDF_URL", value=pdf,
+                                    extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1))
+            return src.id
+        astro = add("Shock breakout in core-collapse supernovae", "Neutrino signature of the shock breakout.")
+        paywalled = add("Breakout trading in equity markets", "We test breakout rules on stocks.")
+        free = add("Channel breakout returns", "Breakout signals in futures markets.", pdf="https://x.example/f.pdf")
+    picked = [sid for sid, _ in runner._select(cid, CampaignSpec(request="breakout", families=["breakout"]), set())]
+    assert astro not in picked and picked[:2] == [free, paywalled]
