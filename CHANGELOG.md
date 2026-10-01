@@ -1,5 +1,11 @@
 # Changelog
 
+## Fix: `qsd reground` hung on a slow website (2026-10-01)
+- `reground` reads the saved download (HTTP cache) first and only downloads again when no copy exists; prints
+  progress per source.
+- Every download now has a total time limit (4 × `crawling.request_timeout_seconds`), so a server that trickles
+  bytes can no longer stall a run (`DOWNLOAD_TIMEOUT`). Cache entries also record the final URL. 134 tests.
+
 ## Fact-check tuning after the first live run (2026-10-01)
 - Grounding accepts a quote of ≥ 6 words when ≥ 85% of its words occur in order in one short stretch of the source
   and every number in it matches exactly; the stored quote is replaced by the source's own wording. Short quotes and

@@ -248,3 +248,35 @@ def test_fetch_and_store_records_source_log_and_errors(tmp_path):
         assert {e.stage for e in errors} == {"fetch"} and len(errors) == 2  # 404 + invalid URL: never silent
         cols = {c.name for c in FetchLog.__table__.columns}
         assert not cols & {"headers", "request_headers", "body", "cookies"}
+
+
+def test_trickling_download_is_cut_off(tmp_path):
+    clock_ref = {}
+
+    def trickle():
+        for _ in range(1000):
+            clock_ref["c"].t += 10  # a byte every 10 s: never trips the per-read timeout
+            yield b"x"
+
+    f, clock = make_fetcher(site({"/slow.pdf": lambda req: httpx.Response(200, content=trickle())}), tmp_path)
+    clock_ref["c"] = clock
+    r = f.fetch("https://example.org/slow.pdf")
+    assert not r.ok and r.error.startswith("DOWNLOAD_TIMEOUT") and r.attempts == 1
+
+
+def test_saved_copy_reread_without_network(tmp_path):
+    from qsd.cli import _load_document
+
+    pdf = make_pdf(["Carry trade study"])
+    f, _ = make_fetcher(site({"/paper.pdf": httpx.Response(200, content=pdf,
+                                                           headers={"content-type": "application/pdf"})}), tmp_path)
+    engine = make_engine(tmp_path / "db.sqlite")
+    init_db(engine)
+    sid, _, result = fetch_and_store("https://example.org/paper.pdf", f, engine)
+
+    def offline(request):
+        raise AssertionError(f"network used: {request.url}")
+
+    f2, _ = make_fetcher(offline, tmp_path)  # same cache folder, no network allowed
+    again, problem = _load_document(engine, None, sid, f2)
+    assert problem is None and again.sha256 == result.sha256

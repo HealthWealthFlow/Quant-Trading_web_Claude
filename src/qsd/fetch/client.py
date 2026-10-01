@@ -45,6 +45,7 @@ def is_official_api(url: str) -> bool:
     parts = httpx.URL(url)
     return (parts.host, parts.path) in OFFICIAL_API_ENDPOINTS
 MAX_REDIRECTS = 5
+DOWNLOAD_DEADLINE_FACTOR = 4  # x request_timeout_seconds
 
 
 @dataclass
@@ -146,6 +147,9 @@ class PoliteFetcher:
                  max_requests_per_host: int | None = None):
         c = settings.crawling
         self.max_bytes = c.max_download_mb * 1024 * 1024
+        # Total time for one download: a server that trickles bytes never trips the per-read timeout.
+        self.max_download_seconds = c.request_timeout_seconds * DOWNLOAD_DEADLINE_FACTOR
+        self._clock = clock
         self.max_retries = c.max_retries
         self.max_requests_per_host = max_requests_per_host
         self.limiter = DomainLimiter(c.requests_per_minute_per_domain, c.backoff_base_seconds, clock=clock, sleep=sleep)
@@ -184,11 +188,13 @@ class PoliteFetcher:
             declared = r.headers.get("content-length")
             if declared and declared.isdigit() and int(declared) > self.max_bytes:
                 raise _TooLarge(int(declared))
-            chunks, total = [], 0
+            chunks, total, start = [], 0, self._clock()
             for chunk in r.iter_bytes():
                 total += len(chunk)
                 if total > self.max_bytes:
                     raise _TooLarge(total)
+                if self._clock() - start > self.max_download_seconds:
+                    raise _TooSlow(total)
                 chunks.append(chunk)
             return r, b"".join(chunks)
 
@@ -234,6 +240,11 @@ class PoliteFetcher:
                 r, body = self._stream(canonical, headers)
             except _TooLarge as e:
                 resp.access_status, resp.error = AccessStatus.ERROR, f"TOO_LARGE: {e.size} bytes > {self.max_bytes}"
+                return resp
+            except _TooSlow as e:
+                self.limiter.record_error(host)
+                resp.access_status = AccessStatus.ERROR
+                resp.error = f"DOWNLOAD_TIMEOUT: {e.size} bytes after {self.max_download_seconds:.0f}s"
                 return resp
             except httpx.TooManyRedirects:
                 resp.access_status, resp.error = AccessStatus.ERROR, "TOO_MANY_REDIRECTS"
@@ -298,9 +309,16 @@ class PoliteFetcher:
             if self.cache and resp.access_status is AccessStatus.OK and r.status_code == 200:
                 self.cache.put(canonical, {"etag": r.headers.get("etag"),
                                            "last_modified": r.headers.get("last-modified"),
-                                           "content_type": resp.content_type}, body)
+                                           "content_type": resp.content_type, "final_url": resp.final_url},
+                               body)
             return resp
         return resp  # pragma: no cover
+
+
+class _TooSlow(Exception):
+    def __init__(self, size: int):
+        super().__init__(size)
+        self.size = size
 
 
 class _TooLarge(Exception):
