@@ -10,6 +10,7 @@ Run: "support breakout with volume and follow by retracement strategy in bull ma
   named. New types: support and resistance, pullback / retracement / Fibonacci, volume confirmation, moving average.
 - Papers whose title and abstract have no market/trading words are not read ("shock breakout in supernovae").
 - Freely downloadable papers (open PDF, arXiv) are read before paywalled ones, then by relevance, then tier.
+- A paper found earlier but never read moves to the research run that finds it again, so it can be read there.
 
 ## YouTube search, sources.txt, maturity badge, Obsidian notes (2026-10-01)
 Ideas adapted from the user's own Idea Extractor (read-only reference; nothing in it was changed). Not adopted:

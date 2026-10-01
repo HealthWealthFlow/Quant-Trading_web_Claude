@@ -154,6 +154,9 @@ def run_discovery(engine: Engine, connectors: list[Connector], queries: list[str
                             report.new_sources += 1
                         else:
                             report.existing_sources += 1
+                            if (campaign_id is not None and src.campaign_id != campaign_id
+                                    and src.access_status is AccessStatus.NOT_FETCHED):
+                                src.campaign_id = campaign_id  # found before but never read: read it here
                         report.source_ids.append(src.id)
                         if c.connector == "youtube" and video_links:
                             linked = store_video_links(s, src, c, campaign_id, video_links, budget)
