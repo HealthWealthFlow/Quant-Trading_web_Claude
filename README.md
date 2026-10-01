@@ -55,6 +55,9 @@ qsd queue --submit-ready                                         # hand eligible
 Other tools: `qsd discover`, `qsd fetch <url>`, `qsd parse <file>`, `qsd scan <folder>`, `qsd extract <file>`,
 `qsd score`, `qsd package <id>`, `qsd queries --asset ETF --regime CRASH`, `qsd status`, `qsd config`.
 
+On Windows you can also double-click `dashboard.bat` in the project folder: it starts the dashboard and opens your
+browser (keep its window open while you use the dashboard; close it to stop).
+
 The Quant Auto OS reads `data/backtest_queue/pending/*.json`. Every package says:
 **EXTERNAL PERFORMANCE CLAIMS ARE NOT VALIDATED. DOWNSTREAM SYSTEM MUST RECOMPUTE EVERYTHING.**
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## Windows launcher (2026-10-01)
+- `dashboard.bat`: double-click to start the dashboard and open the browser; if it is already running, just opens
+  the browser. `.gitattributes` keeps Windows line endings for `.bat` files.
+
 ## Fix: `qsd reground` hung on a slow website (2026-10-01)
 - `reground` reads the saved download (HTTP cache) first and only downloads again when no copy exists; prints
   progress per source.
