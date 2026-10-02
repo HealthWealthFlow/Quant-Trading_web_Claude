@@ -53,8 +53,8 @@ class AIConfig(BaseModel):
     stage_a_max_chars: int = Field(6000, gt=0)
     stage_b_max_chars: int = Field(40000, gt=0)
     stage_a_max_tokens: int = Field(800, gt=0)
-    # One full strategy with a verbatim quote per field does not fit in 6000 tokens once thinking is billed against
-    # the same budget; a truncated answer is retried compactly, so this only needs headroom for the normal case.
+    # One full strategy with a verbatim quote per field does not fit in the old 8000 once thinking is billed against
+    # the same budget; the provider now disables thinking, and a truncated answer is still retried compactly.
     stage_b_max_tokens: int = Field(16000, gt=0)
     # A model without a price is never called: budgets could not be enforced (spec §45).
     prices: dict[str, ModelPrice | None] = Field(default_factory=dict)

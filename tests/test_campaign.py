@@ -186,8 +186,9 @@ def test_selection_prefers_sources_that_report_evidence(setup):
 def test_selection_prefers_a_readable_source_over_a_paywall(setup):
     """Measured failure: a live round selected four `access_restricted` papers and produced nothing at all.
 
-    A source with a stored open PDF (or arXiv/local/video) is read first inside its tier; the fetcher still decides
-    access for real, so this only costs a slot when the guess is wrong — whereas the reverse wastes every slot.
+    A source with a stored open PDF (or an arXiv/README route) is read first; the fetcher still decides access for
+    real, so this only costs a slot when the guess is wrong — whereas the reverse wastes every slot. Both sources here
+    carry market vocabulary, because main's finance filter (correctly) drops papers that have none.
     """
     from qsd.taxonomy import AccessStatus
 
@@ -196,19 +197,22 @@ def test_selection_prefers_a_readable_source_over_a_paywall(setup):
     spec = parse_request("trend following ETF strategies")
     cid = runner.create("trend following ETF strategies")
     with session_scope(e) as sess:
-        paywalled = Source(campaign_id=cid, title="Trend following", tier=1,
-                           access_status=AccessStatus.NOT_FETCHED, url="https://publisher.test/paywalled")
-        open_copy = Source(campaign_id=cid, title="Trend following", tier=1,
-                           access_status=AccessStatus.NOT_FETCHED, url="https://publisher.test/landing")
+        paywalled = Source(campaign_id=cid, title="Trend following ETF trading strategy", tier=1,
+                           access_status=AccessStatus.NOT_FETCHED, url="https://publisher.example/paywalled")
+        open_copy = Source(campaign_id=cid, title="Trend following ETF trading strategy", tier=1,
+                           access_status=AccessStatus.NOT_FETCHED, url="https://publisher.example/landing")
         sess.add_all([paywalled, open_copy])
         sess.flush()
         sess.add(SourceFact(source_id=open_copy.id, fact_type="PDF_URL", value="https://arxiv.org/pdf/1304.6846",
                             extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1.0))
         open_id = open_copy.id
-    assert runner._select(cid, spec, done=set())[0][0] == open_id
+    chosen = runner._select(cid, spec, done=set())
+    assert chosen, "the finance-word filter must not have dropped both candidates"
+    assert chosen[0][0] == open_id
 
 
 def test_selection_does_not_let_evidence_outrank_a_better_tier(setup):
+    """Tier is a deliberate quality signal: robustness vocabulary may break ties, never override it."""
     from qsd.taxonomy import AccessStatus
 
     s, e, runner, _ai = setup
@@ -216,17 +220,18 @@ def test_selection_does_not_let_evidence_outrank_a_better_tier(setup):
     spec = parse_request("trend following ETF strategies")
     cid = runner.create("trend following ETF strategies")
     with session_scope(e) as sess:
-        tier1 = Source(campaign_id=cid, title="Trend following", tier=1,
-                       access_status=AccessStatus.NOT_FETCHED, url="https://example.test/t1")
-        tier4 = Source(campaign_id=cid, title="Trend following", tier=4,
-                       access_status=AccessStatus.NOT_FETCHED, url="https://example.test/t4")
+        tier1 = Source(campaign_id=cid, title="Trend following ETF trading strategy", tier=1,
+                       access_status=AccessStatus.NOT_FETCHED, url="https://example.example/t1")
+        tier4 = Source(campaign_id=cid, title="Trend following ETF trading strategy", tier=4,
+                       access_status=AccessStatus.NOT_FETCHED, url="https://example.example/t4")
         sess.add_all([tier1, tier4])
         sess.flush()
         sess.add(SourceFact(source_id=tier4.id, fact_type="ABSTRACT",
                             value="out-of-sample replication across markets after costs, walk-forward, robust",
                             extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1.0))
         tier1_id = tier1.id
-    assert runner._select(cid, spec, done=set())[0][0] == tier1_id
+    chosen = runner._select(cid, spec, done=set())
+    assert chosen and chosen[0][0] == tier1_id
 
 
 def test_campaign_end_to_end(setup):
@@ -353,3 +358,39 @@ def test_guided_research_quit_and_decline(setup):
     assert rc == 0
     with session_scope(e) as sess:
         assert sess.scalars(select(Campaign)).first() is None  # declined: nothing started, nothing spent
+
+
+def test_queries_follow_the_request_not_generic_families():
+    from qsd.campaign.runner import plan_queries
+    from qsd.taxonomy import MarketRegime
+
+    spec = parse_request("support breakout with volume and follow by retracement strategy in bull market")
+    qs = plan_queries(spec, [], [MarketRegime(r) for r in spec.regimes], 8)
+    assert "breakout trading strategy" in qs and "breakout strategy bull market" in qs
+    assert "support breakout volume retracement trading strategy" in qs  # short form for arXiv
+    assert not any("earnings" in q or "cross sectional" in q for q in qs)  # no unrelated generic families
+
+
+def test_selection_skips_non_finance_papers_and_prefers_free_pdfs(setup):
+    from qsd.campaign.parse import CampaignSpec
+    from qsd.taxonomy import AccessStatus, ExtractionMethod
+
+    s, e, runner, ai = setup
+    cid = runner.create("breakout strategies")
+    with session_scope(e) as sess:
+        def add(title, abstract, pdf=None, tier=1):
+            src = Source(title=title, url=f"https://x.example/{len(title)}", campaign_id=cid, tier=tier,
+                         access_status=AccessStatus.NOT_FETCHED)
+            sess.add(src)
+            sess.flush()
+            sess.add(SourceFact(source_id=src.id, fact_type="ABSTRACT", value=abstract,
+                                extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1))
+            if pdf:
+                sess.add(SourceFact(source_id=src.id, fact_type="PDF_URL", value=pdf,
+                                    extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1))
+            return src.id
+        astro = add("Shock breakout in core-collapse supernovae", "Neutrino signature of the shock breakout.")
+        paywalled = add("Breakout trading in equity markets", "We test breakout rules on stocks.")
+        free = add("Channel breakout returns", "Breakout signals in futures markets.", pdf="https://x.example/f.pdf")
+    picked = [sid for sid, _ in runner._select(cid, CampaignSpec(request="breakout", families=["breakout"]), set())]
+    assert astro not in picked and picked[:2] == [free, paywalled]

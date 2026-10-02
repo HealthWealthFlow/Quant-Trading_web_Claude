@@ -20,6 +20,7 @@ from ..db import session_scope
 from ..db.models import Campaign, ErrorRecord, FetchLog, Idea, IdeaSource, Source, SourceFact
 from ..discovery import BudgetExhausted, CampaignBudget, build_queries, run_discovery
 from ..discovery.connectors import Connector
+from ..discovery.queries import ASSET_WORDS, REGIME_TERMS, expand_query, normalize_query
 from ..fetch.client import PoliteFetcher
 from ..fetch.enrich import enrich_source
 from ..fetch.pipeline import apply_result
@@ -68,6 +69,40 @@ class CampaignReport:
     budget_spent: dict = field(default_factory=dict)
 
 
+FINANCE_WORDS = re.compile(
+    r"\b(trad\w*|stocks?|equit\w*|markets?|prices?|returns?|portfolios?|invest\w*|financ\w*|forex|currenc\w*|"
+    r"futures|options?|crypto\w*|bitcoin|etfs?|funds?|hedg\w*|volatil\w*|momentum|sharpe|assets?|indicators?|"
+    r"technical analysis|securities|commodit\w*|bonds?|interest rates?)\b", re.I)
+_QUERY_STOP = {"find", "follow", "followed", "with", "that", "work", "works", "strategy", "strategies", "market",
+               "markets", "bull", "bear", "bullish", "bearish", "sideways", "crash", "good", "best", "using"}
+
+
+def plan_queries(spec: CampaignSpec, assets, regimes, limit: int) -> list[str]:
+    """Searches built from the request itself first; generic query families only when no strategy type was named."""
+    qs: list[str] = []
+    core = spec.core_query.strip()
+    if core:
+        qs.append(core if FINANCE_WORDS.search(core) else f"{core} trading strategy")
+        keywords = [w for w in re.findall(r"[A-Za-z][A-Za-z\-]{3,}", core) if w.lower() not in _QUERY_STOP]
+        if 1 < len(keywords) <= 8:
+            qs.append(" ".join(keywords) + " trading strategy")  # short form: arXiv ANDs every word
+    asset_word = " ".join(ASSET_WORDS.get(a, a.value.lower()) for a in assets or [])
+    for fam in spec.families:
+        qs.append(f"{fam} trading strategy {asset_word}".strip())
+        qs += [f"{fam} strategy {REGIME_TERMS[r][0]}" for r in regimes or []]
+    for fam in spec.families:
+        qs += [f"{v} trading strategy" for v in expand_query(fam)[1:3]]
+    if not spec.families:
+        qs += build_queries(assets, regimes, limit=limit)
+    seen, out = set(), []
+    for q in qs:
+        key = normalize_query(q)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(q)
+    return out[:limit]
+
+
 def _relevance(text: str, terms: list[str]) -> int:
     t = text.lower()
     return sum(1 for term in terms if term and term.lower() in t)
@@ -92,13 +127,14 @@ def _evidence_hits(text: str) -> int:
     return sum(1 for term in EVIDENCE_TERMS if term in t)
 
 
-def _looks_free(src, facts: dict) -> bool:
-    """Whether a stored open copy is likely: an explicit PDF link, an arXiv page, a local file or a video.
+def _looks_free(src, facts: dict, seeded: bool = False) -> bool:
+    """Whether a stored open copy is likely: a PDF link, an arXiv page, a local file, a video, or a user-listed source.
 
-    Deliberately generous and purely a *ranking* signal — the fetcher still decides access for real, and a wrong
-    guess costs one document slot, not correctness.
+    Deliberately generous and purely a *ranking* signal — the fetcher still decides access for real, and a wrong guess
+    costs one document slot, not correctness. `seeded` covers sources.txt/YouTube items, which are readable by
+    construction; without it a paywall could outrank something the operator explicitly asked to read.
     """
-    if facts.get("PDF_URL") or src.local_path:
+    if seeded or facts.get("PDF_URL") or src.local_path:
         return True
     url = (src.url or src.canonical_url or "").lower()
     return any(token in url for token in ("arxiv.org", "youtube.com/watch", ".pdf", "openaccess", "ssrn.com"))
@@ -213,13 +249,11 @@ class CampaignRunner:
 
         assets = [AssetClass(a) for a in spec.asset_classes] or None
         regimes = [MarketRegime(r) for r in spec.regimes] or None
-        extra = [spec.core_query] if spec.core_query else []
-        extra += [f"{f} {' '.join(a.lower() for a in spec.asset_classes)}".strip() for f in spec.families]
-        # Self-directed directions go first: in a multi-round harvest the static plan is exhausted after round 1
-        # (every query lands in search memory), so these — derived from what the campaign actually extracted — are the
-        # only queries likely to return anything new.
-        extra = list(extra_queries or []) + extra
-        queries = extra + build_queries(assets, regimes, limit=self.limits.max_queries)
+        # main's plan_queries() builds the request-derived plan; self-directed directions go in FRONT of it, because in
+        # a multi-round harvest the static plan is exhausted after round 1 (every query lands in search memory) and
+        # these — derived from what the campaign actually extracted — are the only ones likely to return anything new.
+        planned = plan_queries(spec, assets, regimes, self.limits.max_queries)
+        queries = list(dict.fromkeys(list(extra_queries or []) + planned))
         rep = run_discovery(self.engine, self.connectors, queries[:self.limits.max_queries], budget,
                             limit_per_query=self.limits.results_per_query,
                             memory_days=self.settings.discovery.search_memory_days, campaign_id=cid,
@@ -258,12 +292,20 @@ class CampaignRunner:
                 if not target:
                     continue
                 text = f"{src.title} {facts.get('ABSTRACT', '')}"
+                seeded = spec.mode == "SOURCES_FILE" or "ID_YOUTUBE" in facts
+                judged = src.title != UNKNOWN or bool(facts.get("ABSTRACT"))
+                if judged and not seeded and not FINANCE_WORDS.search(text):
+                    continue  # e.g. "Shock breakout in supernovae": same word, not a market paper
                 rel = _relevance(text, terms)
                 evidence = _evidence_hits(text)
-                # descending on (free, relevance, evidence) inside an ascending tier: negate the descending keys
-                ranked.append((src.tier or 9, 0 if _looks_free(src, facts) else 1, -rel, -evidence, src.id, target))
+                free = _looks_free(src, facts, seeded)
+                # readable-for-free first, then relevance, then TIER, then reported robustness evidence as the final
+                # tie-break. Evidence must not outrank tier: `expected_robustness` scores 0.00 on almost every idea
+                # measured, so a source that reports out-of-sample/replication testing is worth reading before an
+                # equally-ranked one — but a tier-4 blog must never displace a tier-1 paper (docs/GATE_CALIBRATION.md).
+                ranked.append((0 if free else 1, -rel, src.tier or 9, -evidence, src.id, target))
         ranked.sort()
-        return [(sid, url) for _t, _f, _r, _e, sid, url in ranked[:self.limits.docs_per_round]]
+        return [(sid, url) for *_k, sid, url in ranked[:self.limits.docs_per_round]]
 
     def _video_description(self, source_id: int, cid: int | None = None):
         """A YouTube video is read through its API metadata: title, description and — when enabled — its captions.

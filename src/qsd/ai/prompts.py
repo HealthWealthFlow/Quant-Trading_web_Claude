@@ -9,7 +9,7 @@ STAGE_A_VERSION = "a1"
 # b5: algorithm-shaped strategies (portfolio weights, model-driven rules) are recorded in `algorithm_rule` /
 # `strategy_kind` instead of extracting as all-UNKNOWN and being rejected for lacking a bar-rule (D38).
 # b4: time_horizon/timeframe are stated explicitly from the rules.
-# b3: a truncated multi-strategy answer is retried with the compact prompt (spec §86).
+# b3: (from main) a truncated multi-strategy answer is retried with a compact single-strategy prompt (spec §86).
 STAGE_B_VERSION = "b5"
 STAGE_C_VERSION = "c1"
 
@@ -43,12 +43,16 @@ Return JSON:
   "worth_deep_read": bool, "confidence": 0.0-1.0}}"""
 
 
-def stage_b_user(title: str, wrapped_text: str, one_strategy_compact: bool = False) -> str:
+def stage_b_user(title: str, wrapped_text: str, max_strategies: int = 3) -> str:
+    """Extraction prompt. `max_strategies=1` is the compact retry after a truncated answer (main's b3 behaviour).
+
+    Merged from two independent fixes for the same truncation bug: main capped the strategy count and told the model
+    to omit UNKNOWN keys (output is the constraint), while this branch's additions require explicit timing and give
+    algorithm-shaped strategies somewhere to go. Both are kept.
+    """
     rules = ", ".join(RULE_FIELDS)
     claims = ", ".join(CLAIM_FIELDS)
-    task = ("extract the single most important distinct trading strategy described in this source, exactly as the "
-            "source states it" if one_strategy_compact else
-            "extract every distinct trading strategy described in this source, exactly as the source states it")
+    compact = max_strategies <= 1
     tail = """
 Field meanings: timeframe = bar/candle interval the signal is computed on (e.g. daily bars);
 data_frequency = frequency of the input data; holding_period = how long one position is held;
@@ -73,15 +77,19 @@ BAR_RULE, record the stated decision mechanism in the rule field "algorithm_rule
 objective optimised, or the model and its inputs — quoted from the source, and leave entry_rule/exit_rule as UNKNOWN
 rather than inventing bar conditions the source never states. Never report a fully stated algorithm as UNKNOWN merely
 because it has no entry/exit pair."""
-    if one_strategy_compact:
-        # A previous answer ran out of output tokens, so ask for one strategy in a fraction of the output budget.
+    if compact:
+        # A previous answer ran out of output tokens: ask for the single best-specified strategy in a fraction of the
+        # budget, and drop the optional parts entirely rather than truncating again.
         tail += """
 COMPACT MODE: return exactly ONE strategy — the one whose rules the source states most completely and most clearly
 (not a generic "buy low, sell high" statement). Omit the rationale, the claims, the regimes, data_required and
 failure_modes_from_source: return only strategy_name, summary, asset_classes, strategy_families,
 position_direction, time_horizon, rules (include only the rule keys the source really states) and unknown_rules.
 Every value you do return must still carry its verbatim evidence_quote."""
-    return f"""Task: {task}.
+    return f"""Task: extract the trading strategies described in this source, exactly as the source states them.
+Return at most {max_strategies} (the most completely specified). Keep the JSON short: include only rules, parameters,
+claims and regimes the source actually states (omit anything UNKNOWN; missing keys are treated as UNKNOWN), and keep
+each evidence_quote under 30 words.
 Title: {title}
 
 {wrapped_text}
@@ -93,7 +101,7 @@ Return JSON: {{"strategies": [{{
   "asset_classes": [{_ASSETS}], "strategy_families": [str],
   "position_direction": one of {", ".join(p.value for p in PositionDirection)},
   "time_horizon": one of {", ".join(t.value for t in TimeHorizon)},
-  "rules": {{keys from: {rules}; each an E}},
+  "rules": {{only stated keys from: {rules}; each an E}},
   "parameters": [{{"name": str, ...E}}],
   "rationale": E  (why the edge may exist, only as argued by the source),
   "claims": {{keys from: {claims}; each an E with the number exactly as written}},

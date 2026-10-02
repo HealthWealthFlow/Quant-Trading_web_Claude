@@ -28,6 +28,8 @@ FAMILY_PHRASES = {
     r"rotation": "rotation", r"volatility": "volatility", r"funding": "funding rate", r"breakout": "breakout",
     r"seasonal": "seasonality", r"pairs|stat(istical)? arb": "pairs trading", r"trend": "trend following",
     r"earnings|pead": "post earnings announcement drift", r"intraday|0dte": "intraday",
+    r"support|resistance": "support and resistance", r"retracement|pullback|fibonacci": "pullback",
+    r"\bvolume\b": "volume confirmation", r"moving average|crossover": "moving average",
 }
 MODES = {r"\bacademic\b|papers? only": "ACADEMIC_ONLY", r"\bdeep\b|thorough": "DEEP_RESEARCH",
          r"\bquick\b": "QUICK_DISCOVERY", r"\brecent\b|latest|new": "RECENT_ONLY"}

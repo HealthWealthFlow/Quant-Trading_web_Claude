@@ -18,7 +18,10 @@ ai:
   stage_a_max_chars: 6000         # text sent for cheap triage
   stage_b_max_chars: 40000        # relevant sections only; whole books are never sent (spec §21)
   stage_a_max_tokens: 800
-  stage_b_max_tokens: 16000       # one full strategy with a verbatim quote per field
+  # 16000, not 8000: the old note here read "DeepSeek's output limit is 8192", but the current models advertise a far
+  # higher ceiling, and the real cause of truncated JSON was thinking tokens being billed from this same output budget
+  # (now disabled in the provider). One full strategy with a verbatim quote on every field needs well over 8000.
+  stage_b_max_tokens: 16000
   # USD per 1M tokens. A model with no price is NEVER called (budgets can't be enforced without it).
   # Keep these in step with the provider's pricing page; the values below are the published peak rates.
   prices:
