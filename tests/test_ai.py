@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from fixtures import make_pdf
 from sqlalchemy import select
@@ -8,10 +9,13 @@ from sqlalchemy import select
 from qsd.ai import (
     AIGateway,
     AIOutputError,
+    AIOutputTruncated,
+    OpenAICompatibleProvider,
     ProviderError,
     ProviderResponse,
     StageAResult,
     UnpricedModelError,
+    default_providers,
     extract_ideas,
     ground_strategy,
     quote_in_source,
@@ -21,7 +25,7 @@ from qsd.ai.schemas import ExtractedStrategy
 from qsd.ai.sections import select_relevant
 from qsd.config import DEFAULT_CONFIG, load_settings
 from qsd.db import init_db, make_engine, session_scope
-from qsd.db.models import AICall, Idea, IdeaSource, Source, SourceFact
+from qsd.db.models import AICache, AICall, Idea, IdeaSource, Source, SourceFact
 from qsd.discovery.budget import BudgetExhausted, CampaignBudget
 from qsd.handlers import parse_bytes
 from qsd.taxonomy import UNKNOWN, IdeaStatus, MarketRegime, RegimeBasis, RegimeSuitability
@@ -77,24 +81,31 @@ STAGE_B = {"strategies": [{
 class FakeProvider:
     name = "fake"
 
-    def __init__(self, replies):
+    def __init__(self, replies, truncated=False, truncate_calls=None):
         self.replies = list(replies)
         self.calls = []
+        self.truncated = truncated  # every reply is cut off (a single-call provider)
+        self.truncate_calls = set(truncate_calls or ())  # or only these reply indexes are
 
     def complete(self, model, system, user, max_tokens):
+        index = len(self.calls)
         self.calls.append({"model": model, "system": system, "user": user})
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
         text = reply if isinstance(reply, str) else json.dumps(reply)
-        return ProviderResponse(text=text, input_tokens=1000, output_tokens=200, latency_ms=5, model=model)
+        return ProviderResponse(text=text, input_tokens=1000, output_tokens=200, latency_ms=5, model=model,
+                                truncated=self.truncated or index in self.truncate_calls)
 
 
 def settings(**env):
     base = {"QSD_AI__DEFAULT_PROVIDER": "fake"}
     base.update(env)
     s = load_settings(DEFAULT_CONFIG, None, environ=base)
-    s.ai.prices["deepseek-chat"] = type(s.ai.prices["claude-opus-5-5"])(input_per_mtok=1.0, output_per_mtok=2.0)
+    price = type(s.ai.prices["claude-opus-5-5"])
+    s.ai.prices["deepseek-flash"] = price(input_per_mtok=1.0, output_per_mtok=2.0)
+    s.ai.prices["deepseek-v4-pro"] = price(input_per_mtok=1.0, output_per_mtok=2.0)
+    s.ai.prices["deepseek-chat"] = price(input_per_mtok=1.0, output_per_mtok=2.0)  # pre-upgrade local.yaml
     return s
 
 
@@ -175,6 +186,53 @@ def test_json_in_code_fence_accepted(engine):
     gw = AIGateway(engine, settings(), {"fake": FakeProvider(["```json\n" + json.dumps(STAGE_A) + "\n```"])})
     obj, _ = run_simple(gw)
     assert obj.is_strategy_research
+
+
+# ---- truncation (stage B answers that run out of output tokens) -------------------------------------
+
+def test_truncated_answer_raises_a_distinct_error_and_is_never_cached(engine):
+    fake = FakeProvider([STAGE_A, STAGE_A], truncate_calls={0})
+    gw = AIGateway(engine, settings(), {"fake": fake})
+    with pytest.raises(AIOutputTruncated):
+        run_simple(gw)
+    with session_scope(engine) as s:  # the partial answer must not be stored as a real answer
+        assert s.scalars(select(AICache)).all() == []
+    run_simple(gw)  # ... so the identical retry must reach the provider again
+    assert len(fake.calls) == 2
+    with session_scope(engine) as s:
+        rows = s.scalars(select(AICall)).all()
+        assert [r.success for r in rows] == [False, True]
+        assert [c.cache_key for c in s.scalars(select(AICache)).all()] == [rows[1].cache_key]
+
+
+def test_openai_compatible_provider_marks_a_length_finish_as_truncated(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"strategies": ['},
+                                                      "finish_reason": "length"}],
+                                        "usage": {"prompt_tokens": 10, "completion_tokens": 16000}})
+
+    monkeypatch.setenv("FAKE_KEY", "test-key")
+    p = OpenAICompatibleProvider("fake", "https://example.invalid", "FAKE_KEY",
+                                 transport=httpx.MockTransport(handler))
+    resp = p.complete("m", "sys", "user", 16000)
+    assert resp.truncated and resp.output_tokens == 16000
+
+
+def test_deepseek_provider_disables_thinking_mode(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}],
+                                        "usage": {"prompt_tokens": 1, "completion_tokens": 1}})
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    p = default_providers()["deepseek"]
+    p._client = httpx.Client(transport=httpx.MockTransport(handler))
+    p.complete("deepseek-v4-pro", "sys", "user", 100)
+    # Thinking tokens are billed and are drawn from max_tokens, which is exactly what truncated the JSON.
+    assert seen["thinking"] == {"type": "disabled"}
+    assert default_providers()["openai"].disable_thinking is False  # OpenAI gets no DeepSeek-only parameter
 
 
 # ---- grounding -------------------------------------------------------------------------------------
@@ -293,7 +351,7 @@ def test_extract_ideas_end_to_end(engine):
         assert idea.status is IdeaStatus.NEEDS_REVIEW  # half of the offered values failed grounding
         assert "UNRELIABLE_EXTRACTION" in idea.red_flags
         assert not any(f.startswith("UNGROUNDED") for f in idea.red_flags)  # reported in idea.grounding instead
-        assert len(idea.grounding["removed"]) == 5 and idea.grounding["prompt_version"] == "b3"
+        assert len(idea.grounding["removed"]) == 5 and idea.grounding["prompt_version"] == "b5"
         regimes = {r.regime: r for r in idea.regimes}
         assert regimes[MarketRegime.BEARISH].suitability is RegimeSuitability.SUITED
         assert regimes[MarketRegime.BEARISH].source_fact_id is not None
@@ -302,6 +360,56 @@ def test_extract_ideas_end_to_end(engine):
                                                   SourceFact.fact_type == "REBALANCE")).one()
         assert fact.page == 2 and fact.quote == "rebalanced monthly"
         assert s.scalars(select(IdeaSource)).one().role.value == "DESCRIBES"
+
+
+def test_stage_b_truncation_retries_with_one_strategy(engine):
+    result = parse_bytes(make_pdf(PAGES), name="tsmom.pdf")
+    sid = _source(engine)
+    fake = FakeProvider([STAGE_A, STAGE_B, SHORT_B], truncate_calls={1})
+    settings_ = settings()
+    gw = AIGateway(engine, settings_, {"fake": fake})
+    rep = extract_ideas(gw, engine, settings_, sid, result)
+    assert rep.retried_short and len(rep.idea_ids) == 1 and rep.skipped_reason is None
+    assert "STAGE_B_RETRIED_SHORT" in rep.flags
+    assert "COMPACT MODE" in fake.calls[2]["user"] and "COMPACT MODE" not in fake.calls[1]["user"]
+    # The truncated attempt produced no usable content, so both strong-model calls are billed but only the retry
+    # yields an idea. Triage is cheap, the two stage-B calls are not.
+    price = settings_.ai.prices[settings_.ai.strong_model]
+    assert rep.cost_usd == pytest.approx((1000 * price.input_per_mtok + 200 * price.output_per_mtok) / 1e6 * 2)
+    with session_scope(engine) as s:
+        idea = s.get(Idea, rep.idea_ids[0])
+        assert idea.strategy_name == "Time-series momentum"
+        assert idea.signal == "positive 12-month excess return" and idea.economic_rationale == UNKNOWN
+        assert [c.success for c in s.scalars(select(AICall)).all()] == [True, False, True]
+
+
+def test_stage_b_truncation_twice_raises_a_clear_error(engine):
+    result = parse_bytes(make_pdf(PAGES), name="tsmom.pdf")
+    sid = _source(engine)
+    fake = FakeProvider([STAGE_A, STAGE_B, SHORT_B], truncate_calls={1, 2})
+    gw = AIGateway(engine, settings(), {"fake": fake})
+    with pytest.raises(AIOutputTruncated) as e:
+        extract_ideas(gw, engine, settings(), sid, result)
+    assert "truncated" in str(e.value)
+    assert len(fake.calls) == 3  # triage, full extraction, compact retry — then stop, do not loop
+    with session_scope(engine) as s:
+        assert [c.success for c in s.scalars(select(AICall)).all()] == [True, False, False]
+        # only the successful triage may be cached: no partial stage-B answer is ever stored
+        assert len(s.scalars(select(AICache)).all()) == 1 and not s.scalars(select(Idea)).all()
+
+
+def test_stage_b_prompt_requires_timing_and_parameters_to_be_stated():
+    """Timing drives `opportunity_frequency`, which the scorer cannot assess when time_horizon is UNKNOWN.
+
+    Measured on the first live five-idea paper: `data_frequency: daily` was extracted while `time_horizon` stayed
+    UNKNOWN, so a whole weighted component (5 points) went unscored for no reason the source justified.
+    """
+    from qsd.ai import prompts
+
+    prompt = prompts.stage_b_user("T", "BODY")
+    assert "time_horizon" in prompt and "SWING" in prompt and "MULTI_DAY" in prompt
+    assert "MUST be set from them" in prompt
+    assert 'belongs\nin "parameters"' in prompt
 
 
 def test_triage_rejection_skips_expensive_stage(engine):
@@ -345,6 +453,16 @@ GOOD_B = {"strategies": [{
     "claims": {"claimed_sharpe": {"value": "1.2", "evidence_quote": "earned a Sharpe ratio of 1.2"}},
     "regimes": [{"regime": "BEARISH", "suitability": "SUITED", "basis": "SOURCE_STATED", "confidence": 0.9,
                  "evidence_quote": "performs best in extended bear markets", "location": "p.3"}],
+}]}
+
+
+# The compact retry (one strategy, no rationale/claims/regimes) that fits inside the output budget.
+SHORT_B = {"strategies": [{
+    "strategy_name": "Time-series momentum", "summary": "Long positive 12m return assets",
+    "asset_classes": ["FUTURES"], "position_direction": "LONG_SHORT", "time_horizon": "MONTHLY",
+    "rules": {"signal": {"value": "positive 12-month excess return",
+                         "evidence_quote": "long assets with positive 12-month excess return", "location": "p.1"}},
+    "unknown_rules": ["stop_rule", "exit_rule"],
 }]}
 
 

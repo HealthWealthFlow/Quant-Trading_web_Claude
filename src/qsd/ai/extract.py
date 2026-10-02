@@ -34,6 +34,7 @@ class ExtractionReport:
     flags: list[str] = field(default_factory=list)
     cost_usd: float = 0.0
     skipped_reason: str | None = None
+    retried_short: bool = False  # stage B first answer was truncated; retried as one compact strategy
 
 
 def _loc(location: str | None) -> dict:
@@ -167,7 +168,9 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
         report.skipped_reason = "TRIAGE_NOT_PROMISING"
         return report
 
-    # Stage B: strong extraction on relevant sections only (spec §21, §86 B)
+    # Stage B: strong extraction on relevant sections only (spec §21, §86 B). A multi-strategy answer can run out
+    # of output tokens mid-JSON; then the partial answer is discarded (never cached) and the model is asked once
+    # more for a single compact strategy, which fits well inside the budget.
     sel = select_relevant(result, ai.stage_b_max_chars)
     wrapped_sel = wrap_untrusted(sel.text, ref)
 
@@ -182,14 +185,17 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
         extraction, info = stage_b(3)
     except AIOutputError:
         # Usually a long answer cut off at the output limit: ask once more for the single best-specified strategy.
+        # (A truncated answer is never cached, so this retry is a real second call, not a cache hit.)
         extraction, info = stage_b(1)
+        report.retried_short = True  # both the attribute and the flag: callers and reports read each
         report.flags.append("STAGE_B_RETRIED_SHORT")
-    report.deep_read = True
     report.cost_usd += info.cost_usd
+    report.deep_read = True
     red_flags += [f"TRIAGE_RED_FLAG:{f}"[:80] for f in triage.red_flags]
+    strategies = extraction.strategies if extraction is not None else []
     grounding_text = sel.text + ("\n" + abstract if abstract else "")
     with session_scope(engine) as s:
-        for st in extraction.strategies:
+        for st in strategies:
             rep = ground_strategy(st, grounding_text)
             report.flags.extend(rep.flags)
             report.idea_ids.append(_store_strategy(s, source_id, campaign_id, st, rep, red_flags, ai.strong_model,

@@ -155,3 +155,68 @@ def test_campaign_reads_video_description_and_linked_paper_never_the_video(tmp_p
         assert "youtube.com/watch" in log.request_url and KEY not in json.dumps(
             [r.request_url for r in sess.scalars(select(FetchLog))])
     assert any("Task: extract" in c for c in ai.calls)
+
+
+def test_video_is_read_through_its_transcript_when_enabled(tmp_path, monkeypatch):
+    """The spoken content, not the description, is what carries a strategy (DECISIONS D29: campaign 3 read 150
+    video descriptions and produced zero strategies)."""
+    from qsd.fetch import Transcript
+
+    spied: dict = {}
+
+    def fake_transcript(video_id, languages=None, timeout=None):
+        spied["video_id"], spied["languages"] = video_id, languages
+        return Transcript(text="[t=00:00:05] We buy when price closes above the 10 month moving average\n"
+                               "[t=00:00:20] Exit to cash when it closes back below the 10 month average\n",
+                          language="en", source="auto")
+
+    monkeypatch.setattr("qsd.campaign.runner.fetch_transcript", fake_transcript)
+
+    s, seen = settings(QSD_DISCOVERY__YOUTUBE_TRANSCRIPTS="true"), []
+    e = make_engine(tmp_path / "db.sqlite")
+    init_db(e)
+    f = fetcher_for(s, seen)
+    runner = CampaignRunner(e, s, f, AIGateway(e, s, {"fake": ScriptedAI()}),
+                            [YouTubeConnector(f, api_key=KEY)],
+                            CampaignLimits(max_queries=1, docs_per_round=5, deepen_top_ideas=2))
+    cid = runner.create("trend following crash protection")
+    runner.run(cid)
+
+    assert spied["video_id"] == VIDEO["id"]
+    with session_scope(e) as sess:
+        video = sess.scalars(select(Source).where(Source.url.like("%youtube.com/watch%"))).one()
+        assert video.format == "youtube-transcript"
+        stored = sess.scalars(select(SourceFact.value).where(SourceFact.source_id == video.id,
+                                                             SourceFact.fact_type == "TRANSCRIPT")).one()
+        assert "10 month moving average" in stored
+        log = sess.scalars(select(FetchLog).where(FetchLog.source_id == video.id)).all()
+        assert any(x.retrieval_method == "API_TRANSCRIPT" for x in log)
+    assert not any(r.url.host in ("www.youtube.com", "youtube.com") for r in seen)  # media still untouched
+
+
+def test_transcript_is_reused_not_refetched(tmp_path, monkeypatch):
+    """A resumed campaign must not pay for captions it already stored."""
+    from qsd.fetch import Transcript
+
+    calls: list[str] = []
+
+    def fake_transcript(video_id, languages=None, timeout=None):
+        calls.append(video_id)
+        return Transcript(text="[t=00:00:01] buy the breakout", language="en", source="auto")
+
+    monkeypatch.setattr("qsd.campaign.runner.fetch_transcript", fake_transcript)
+    s = settings(QSD_DISCOVERY__YOUTUBE_TRANSCRIPTS="true")
+    e = make_engine(tmp_path / "db.sqlite")
+    init_db(e)
+    f = fetcher_for(s, [])
+    runner = CampaignRunner(e, s, f, AIGateway(e, s, {"fake": ScriptedAI()}),
+                            [YouTubeConnector(f, api_key=KEY)],
+                            CampaignLimits(max_queries=1, docs_per_round=5, deepen_top_ideas=0))
+    cid = runner.create("trend following")
+    runner.run(cid)
+    assert len(calls) == 1
+    with session_scope(e) as sess:
+        video = sess.scalars(select(Source).where(Source.url.like("%youtube.com/watch%"))).one()
+        vid = video.id
+    runner._video_description(vid, cid)  # read the same video again
+    assert len(calls) == 1  # served from the stored TRANSCRIPT fact

@@ -24,6 +24,7 @@ class ProviderResponse:
     output_tokens: int
     latency_ms: int
     model: str
+    truncated: bool = False  # finish_reason == "length": the answer was cut off at max_tokens
 
 
 class ProviderError(RuntimeError):
@@ -45,10 +46,11 @@ class OpenAICompatibleProvider(Provider):
     """DeepSeek and OpenAI both expose POST {base_url}/chat/completions."""
 
     def __init__(self, name: str, base_url: str, api_key_env: str, timeout: float = 120.0,
-                 transport: httpx.BaseTransport | None = None):
+                 transport: httpx.BaseTransport | None = None, disable_thinking: bool = False):
         self.name = name
         self.base_url = base_url.rstrip("/")
         self.api_key_env = api_key_env
+        self.disable_thinking = disable_thinking
         self._client = httpx.Client(timeout=timeout, transport=transport)
 
     def complete(self, model: str, system: str, user: str, max_tokens: int) -> ProviderResponse:
@@ -62,6 +64,10 @@ class OpenAICompatibleProvider(Provider):
             "temperature": 0,
             "response_format": {"type": "json_object"},
         }
+        if self.disable_thinking:
+            # Extraction is deterministic JSON, not reasoning. Thinking tokens are billed and are drawn from the
+            # same max_tokens budget, so leaving it on truncates the JSON before it is complete.
+            body["thinking"] = {"type": "disabled"}
         started = time.monotonic()
         try:
             r = self._client.post(f"{self.base_url}/chat/completions", json=body,
@@ -79,6 +85,7 @@ class OpenAICompatibleProvider(Provider):
             output_tokens=int(usage.get("completion_tokens") or 0),
             latency_ms=int((time.monotonic() - started) * 1000),
             model=data.get("model") or model,
+            truncated=choice.get("finish_reason") == "length",
         )
 
 
@@ -135,12 +142,15 @@ class AnthropicProvider(Provider):
         else:
             in_tok, out_tok = resp.usage.input_tokens, resp.usage.output_tokens
         return ProviderResponse(text=text, input_tokens=in_tok, output_tokens=out_tok,
-                                latency_ms=int((time.monotonic() - started) * 1000), model=resp.model)
+                                latency_ms=int((time.monotonic() - started) * 1000), model=resp.model,
+                                truncated=resp.stop_reason == "max_tokens")
 
 
 def default_providers() -> dict[str, Provider]:
     return {
-        "deepseek": OpenAICompatibleProvider("deepseek", "https://api.deepseek.com", "DEEPSEEK_API_KEY"),
+        # DeepSeek's model supports a thinking mode that is on by default; extraction needs plain JSON.
+        "deepseek": OpenAICompatibleProvider("deepseek", "https://api.deepseek.com", "DEEPSEEK_API_KEY",
+                                             disable_thinking=True),
         "openai": OpenAICompatibleProvider("openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
         "anthropic": AnthropicProvider(),
     }

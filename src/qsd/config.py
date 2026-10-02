@@ -46,14 +46,16 @@ class ModelPrice(BaseModel):
 
 class AIConfig(BaseModel):
     default_provider: str = "deepseek"
-    cheap_model: str = "deepseek-chat"
-    strong_model: str = "deepseek-chat"
+    cheap_model: str = "deepseek-flash"
+    strong_model: str = "deepseek-v4-pro"
     second_opinion_provider: str | None = None
     second_opinion_model: str = "claude-opus-5-5"
     stage_a_max_chars: int = Field(6000, gt=0)
     stage_b_max_chars: int = Field(40000, gt=0)
     stage_a_max_tokens: int = Field(800, gt=0)
-    stage_b_max_tokens: int = Field(8000, gt=0)
+    # One full strategy with a verbatim quote per field does not fit in the old 8000 once thinking is billed against
+    # the same budget; the provider now disables thinking, and a truncated answer is still retried compactly.
+    stage_b_max_tokens: int = Field(16000, gt=0)
     # A model without a price is never called: budgets could not be enforced (spec §45).
     prices: dict[str, ModelPrice | None] = Field(default_factory=dict)
 
@@ -64,7 +66,7 @@ class Budgets(BaseModel):
     max_ai_cost_usd_per_campaign: float = Field(2.0, ge=0)
     max_ai_calls_per_campaign: int = Field(200, ge=0)
     max_ai_tokens_per_campaign: int = Field(2_000_000, ge=0)
-    max_search_requests_per_campaign: int = Field(100, ge=0)
+    max_search_requests_per_campaign: int = Field(300, ge=0)
     max_urls_per_campaign: int = Field(300, ge=0)
     max_documents_per_campaign: int = Field(150, ge=0)
     max_sources_per_domain: int = Field(25, ge=0)
@@ -105,7 +107,9 @@ class Exploration(BaseModel):
 
 class QualityGate(BaseModel):
     high_priority: int = 85
-    promising: int = 70
+    # 60, not the original 70 (D37): several components cap below 1.0 by design, so even a perfect idea scores 88.2
+    # and the effective bar was ~79% of what is achievable. Must stay in step with config/default.yaml.
+    promising: int = 60
     research_further: int = 55
 
 
@@ -118,6 +122,16 @@ class Discovery(BaseModel):
     youtube_enabled: bool = True
     youtube_results_per_query: int = Field(10, gt=0, le=50)
     youtube_max_links_per_video: int = Field(5, ge=0, le=20)  # research links followed from a description
+    # Read the video's spoken content through its captions (subtitles only; media is never downloaded).
+    # Off by default: with it off, a video is read exactly as before (title + description). DECISIONS D29.
+    youtube_transcripts: bool = False
+    youtube_caption_languages: list[str] = Field(default_factory=lambda: ["en", "en-US", "en-GB"])
+    youtube_transcript_timeout_seconds: int = Field(120, gt=0, le=600)
+    # Strategy code on GitHub via the public REST API. No key needed, but unauthenticated search is limited to
+    # 60 requests/hour (set GITHUB_TOKEN for 5000), so it is off unless asked for.
+    github_enabled: bool = False
+    github_results_per_query: int = Field(5, gt=0, le=30)
+    github_min_stars: int = Field(0, ge=0)  # raise to keep only repos with some community signal
 
 
 DEFAULT_IDEA_WEIGHTS = {

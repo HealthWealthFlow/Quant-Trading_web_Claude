@@ -68,7 +68,8 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
         flags = sorted(set(idea.red_flags or []) | set(found))
         completeness, missing = rules.formalization_completeness(idea)
         complexity, complexity_parts = rules.parameter_complexity(idea)
-        fails = rules.hard_fails(rule_text + " " + corpus, found, completeness, idea.signal)
+        fails = rules.hard_fails(rule_text + " " + corpus, found, completeness, idea.signal,
+                                 algorithm_rule=idea.algorithm_rule)
 
         # root evidence, source & evidence quality, replication
         root = dedupe.root_evidence_id(ids, src.id) if src else f"idea:{idea.id}"

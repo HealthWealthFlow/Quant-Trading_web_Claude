@@ -44,10 +44,23 @@ OFFICIAL_API_ENDPOINTS = {
     ("www.googleapis.com", "/youtube/v3/playlistItems"),
 }
 
+# Prefix allowlist, for APIs whose documented paths are per-resource (`/repos/<owner>/<name>`, ids, ...). Kept
+# separate from the exact set above so existing behaviour cannot change by accident, and deliberately as narrow as
+# possible: GitHub's REST API is the only entry (spec §11, GitHub code handler).
+OFFICIAL_API_PREFIXES = {
+    ("api.github.com", "/repos/"),      # repository metadata + README
+    ("api.github.com", "/search/"),     # repository search
+}
+
 
 def is_official_api(url: str) -> bool:
     parts = httpx.URL(url)
-    return (parts.host, parts.path) in OFFICIAL_API_ENDPOINTS
+    if (parts.host, parts.path) in OFFICIAL_API_ENDPOINTS:
+        return True
+    return any(parts.host == host and parts.path.startswith(prefix)
+               for host, prefix in OFFICIAL_API_PREFIXES)
+
+
 MAX_REDIRECTS = 5
 DOWNLOAD_DEADLINE_FACTOR = 4  # x request_timeout_seconds
 

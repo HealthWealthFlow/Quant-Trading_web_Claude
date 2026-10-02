@@ -19,7 +19,7 @@ def test_db_init_and_info(tmp_path, capsys):
     assert main(["db", "--db", db, "init"]) == 0
     assert main(["db", "--db", db, "info"]) == 0
     out = capsys.readouterr().out
-    assert "schema v4" in out and "ideas" in out
+    assert "schema v5" in out and "ideas" in out
 
 
 def test_reground_with_nothing_stored(tmp_path, capsys):
