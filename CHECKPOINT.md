@@ -1,13 +1,18 @@
 # Checkpoint
 
-**Last completed:** Multi-round harvest verified end to end (2026-10-02). A 3-round run advanced properly, deepened
-real ideas, and produced two `PROMISING` ideas from live content, stopping on its own at `MAX_ROUNDS` with a known
-cost ($0.349).
-**Next:** two open items, both needing a decision rather than more code:
-1. **Algorithm-type strategies are discarded.** An equation-shaped strategy (PAMR: portfolio-weight update) extracts
-   as `signal/entry/exit = UNKNOWN` (completeness 10%) and is **hard-failed** as `RULES_NOT_QUANTIFIABLE`, even though
-   the paper specifies it fully. The schema is shaped for retail bar-rules and has no representation for an update
-   equation. Fixing it needs a schema/model decision — a prompt tweak would only invent rules.
+**Last completed:** Merged `origin/main` (PRs #9 and #10) into the continuous-harvest branch and resolved seven
+conflicts; 243 tests passing. Stage-B truncation now has **both** fixes: main's prompt/retry (b3, 8000 tokens,
+`max_strategies`) and this branch's root-cause fix (thinking mode disabled, `finish_reason` captured, 16000 tokens).
+
+> **Correction to an earlier note in this session.** I claimed "PRs #9 and #10 do not exist in the remote" and that
+> the handoff was wrong about them. **That was my error.** My `git fetch` had failed on a sandbox write denial, so the
+> local `origin/main` ref was stale (still at PR #8) and I read it as the server's truth. `origin/main` was already at
+> **PR #10**. Lesson: after a failed fetch, never treat a remote-tracking ref as authoritative — use `git ls-remote`.
+> The handoff was right about PR #10; what was stale was this working copy.
+
+**Next:** blog/news connector still needs a Brave or Tavily key (not configured on this machine); cross-day resume
+still unobserved live.
+**Branch:** `claude/continuous-harvest` — pushed, PR open, **no longer conflicting**.
 2. **Blogs/news still have no connector** (no Brave/Tavily key configured on this machine).
 
 **Branch:** `claude/loving-noether-1m40os` — all 2026-10-02 work is **uncommitted** in the working tree.
