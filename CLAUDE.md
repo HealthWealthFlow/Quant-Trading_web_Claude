@@ -1,5 +1,8 @@
 # CLAUDE.md — instructions for any AI coding session on this repo
 
+**New to this project? Read `HANDOFF.md` first** — full orientation: purpose, rules, user setup, architecture,
+data model, logic, flows, run history and backlog.
+
 ## Resume protocol (do this first, every session)
 1. Read `PROJECT_STATE.json` and `CHECKPOINT.md`. Run `git log --oneline -15` and `git status`.
 2. Run `python -m qsd.cli status` (after `pip install -e ".[dev]"`) to see the next milestone.
