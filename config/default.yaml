@@ -11,18 +11,19 @@ asset_classes:
 
 ai:
   default_provider: deepseek      # deepseek | openai | anthropic
-  cheap_model: deepseek-chat      # stage A triage
-  strong_model: deepseek-chat     # stage B extraction (set a stronger model if you prefer)
+  cheap_model: deepseek-flash     # stage A triage (cheap, non-thinking)
+  strong_model: deepseek-v4-pro   # stage B extraction (set a stronger model if you prefer)
   second_opinion_provider: null   # e.g. anthropic; used only for high-value candidates (spec §89)
   second_opinion_model: claude-opus-5-5
   stage_a_max_chars: 6000         # text sent for cheap triage
   stage_b_max_chars: 40000        # relevant sections only; whole books are never sent (spec §21)
   stage_a_max_tokens: 800
-  stage_b_max_tokens: 6000
+  stage_b_max_tokens: 16000       # one full strategy with a verbatim quote per field
   # USD per 1M tokens. A model with no price is NEVER called (budgets can't be enforced without it).
-  # Fill DeepSeek/OpenAI prices from the provider's pricing page before first use.
+  # Keep these in step with the provider's pricing page; the values below are the published peak rates.
   prices:
-    deepseek-chat: null
+    deepseek-flash: {input_per_mtok: 0.30, output_per_mtok: 1.20}
+    deepseek-v4-pro: {input_per_mtok: 1.32, output_per_mtok: 3.96}
     claude-opus-5-5: {input_per_mtok: 4.0, output_per_mtok: 20.0}
     claude-sonnet-5-5: {input_per_mtok: 2.0, output_per_mtok: 10.0}
     claude-haiku-4-5: {input_per_mtok: 1.0, output_per_mtok: 5.0}
@@ -33,7 +34,9 @@ budgets:                    # Hard caps; the pipeline stops a campaign when any 
   max_ai_cost_usd_per_campaign: 2.0
   max_ai_calls_per_campaign: 200
   max_ai_tokens_per_campaign: 2000000
-  max_search_requests_per_campaign: 100
+  # A real round spends ~40 searches on discovery and ~60 on replication/contradiction searches for four ideas,
+  # so 100 was exhausted by a single round. `qsd harvest` re-allowances this per round.
+  max_search_requests_per_campaign: 300
   max_urls_per_campaign: 300
   max_documents_per_campaign: 150
   max_sources_per_domain: 25
@@ -57,7 +60,11 @@ exploration:                # Share of research effort (must sum to 1.0)
 
 quality_gate:
   high_priority: 85
-  promising: 70
+  # 60, not 70 (D37). Several components cap below 1.0 by design (edge_vs_cost 0.6, data_availability 0.7,
+  # exit_executability 0.7, liquidity 0.8), so even a perfect idea scores 88.2 - the effective bar at 70 was ~79% of
+  # what is achievable. Measured: nothing passed at 70; the nine best-specified ideas surface at 60 so the deepening
+  # stage can work on them. Ideas still reach the backtest queue only via the handoff rule below.
+  promising: 60
   research_further: 55
 
 discovery:
@@ -67,6 +74,15 @@ discovery:
   youtube_enabled: true     # used only when the YOUTUBE_API_KEY environment variable is set
   youtube_results_per_query: 10   # each YouTube search costs 100 of the free 10,000 daily quota units
   youtube_max_links_per_video: 5  # paper / code links followed from a video description
+  # Read a video's spoken content through its captions (subtitles only; media is never downloaded).
+  # Off by default: with it off a video is read exactly as before (title + description). See DECISIONS D29.
+  youtube_transcripts: false
+  youtube_caption_languages: [en, en-US, en-GB]
+  youtube_transcript_timeout_seconds: 120
+  # Strategy code on GitHub (public REST API; no key needed, but search is limited to 60 requests/hour without one).
+  github_enabled: false
+  github_results_per_query: 5
+  github_min_stars: 0
 
 scoring:
   # Idea quality weights (spec §52); must sum to 100.

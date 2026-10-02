@@ -45,7 +45,7 @@ from ..taxonomy import (
     TimeHorizon,
 )
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MAX_QUOTE_CHARS = 300  # copyright: short necessary quotations only (spec §108)
 
 
@@ -182,6 +182,11 @@ class Idea(Base):
     data_frequency: Mapped[str] = _unknown_text()
     indicators: Mapped[str] = _unknown_text()
     signal: Mapped[str] = _unknown_text()
+    # Not every strategy is a bar-rule. A portfolio-weight or model-driven strategy (e.g. PAMR) states its decision
+    # as an update equation, so `signal`/`entry_rule`/`exit_rule` are legitimately absent while the strategy is fully
+    # specified. These two fields let that be recorded instead of hard-failing as RULES_NOT_QUANTIFIABLE (D38).
+    strategy_kind: Mapped[str] = _unknown_text()   # BAR_RULE | ALGORITHM | PORTFOLIO_WEIGHT | MACHINE_LEARNING
+    algorithm_rule: Mapped[str] = _unknown_text()  # the stated decision/update mechanism, verbatim-grounded
     lookback: Mapped[str] = _unknown_text()
     entry_rule: Mapped[str] = _unknown_text()
     exit_rule: Mapped[str] = _unknown_text()

@@ -1,5 +1,256 @@
 # Changelog
 
+## Algorithm-shaped strategies are no longer discarded (schema v5, D38) (2026-10-02)
+The gap that silently threw away a whole class of academic quant research.
+- **The problem.** PAMR (*Passive Aggressive Mean Reversion*) states its decision as a portfolio-weight update
+  equation. It extracted with `signal`/`entry_rule`/`exit_rule` = UNKNOWN — correctly, since the paper never states a
+  bar-rule — reached 10% completeness, and was **hard-failed** as `RULES_NOT_QUANTIFIABLE`. Four fully specified ideas
+  discarded. The anti-fabrication rule was doing its job; the schema simply had nowhere to put an algorithm.
+- **Fix:** `ideas.strategy_kind` (`BAR_RULE` / `ALGORITHM` / `PORTFOLIO_WEIGHT` / `MACHINE_LEARNING`) and
+  `ideas.algorithm_rule` (the stated decision mechanism, verbatim-grounded), added as an **additive migration
+  v4 → v5**. `RULES_NOT_QUANTIFIABLE` now fires only when there is **no rule of any kind** — a genuinely empty
+  extraction is still rejected, so the rule did not become a loophole.
+- **Prompt b5** asks for both fields, with explicit instruction to leave `entry_rule`/`exit_rule` UNKNOWN for an
+  algorithm rather than inventing bar conditions, and that a fully stated algorithm is a quantifiable rule.
+- `algorithm_rule` is now part of the rule text the scorer scans, so look-ahead / martingale / survivor checks still
+  see an algorithm's wording.
+- **Verified on the live database:** `qsd db init` migrated v4 → v5 with **all 30 existing ideas preserved** and the
+  new columns defaulting to UNKNOWN.
+- Tests: algorithm fields are part of the rule schema; a stated algorithm is not a hard fail; an empty extraction
+  still is; a bar-rule strategy is unaffected; end-to-end scoring of a PAMR-shaped idea reaches a non-REJECTED status;
+  the v1→v5 migration keeps data and defaults the new columns (239 tests).
+
+## Self-directed search: the harvest drives itself (2026-10-02)
+The gap that stopped the loop being autonomous: it could run rounds, respect budgets and resume, but could not decide
+**what to look for next**. Consequence measured live — rounds 2 and 3 of campaign 9 both reported
+`0 new papers found`, because round 1 had already run the entire static query plan.
+- **`campaign/directions.py`** derives follow-up queries from the campaign's **own extracted ideas**: strategy
+  families weighted by how much the campaign found on each, their asset classes, and templates aimed at the gate's
+  measured gaps (`out of sample`, `replication`, `transaction costs`, `robustness` — the components that hold every
+  idea below the gate per `docs/GATE_CALIBRATION.md`). Nothing is invented: no extracted family means no direction.
+- `run_harvest` issues those directions to each later round (`runner.run(cid, extra_queries=...)`), tracks what it
+  already asked so round 3 does not repeat round 2, and reports them under `follow_up_queries`. Round 1 still follows
+  the operator's request, since it has no ideas to learn from yet.
+- **Verified live** (`volatility risk premium options strategy`, $0.193): round 1 found 59 papers and produced
+  `#28 Deep Hedging with Options Using the Implied Volatility Surface` **PROMISING** (54.5 → 56.5 after deepening,
+  1 supporting source). Round 2 announced *"following up on 2 direction(s) from previous rounds (e.g. deep hedging
+  out of sample evidence)"* and found **29 new papers** that the static plan would never have reached.
+- **Also fixed (Stage 2): a spent search allowance no longer ends the campaign.** Searching costs HTTP requests, not
+  AI money; measured in campaign 5, one round spent 97 of 100 searches and the run ended while the daily cost budget
+  was untouched. A `search_requests` stop is now a per-round state (`search_stops` in the report) and the next round
+  gets a fresh allowance with new directions. Genuine ceilings (campaign AI cost, urls, documents) still stop the run.
+- Tests: directions require real extracted families, are ordered by investment, de-duplicated across rounds and
+  limited; the loop directs its own round 2; a spent search allowance continues while a campaign cost cap stops
+  (232 tests).
+
+## Verified end to end: a 3-round harvest now advances and passes ideas (2026-10-02)
+The multi-round behaviour the whole feature exists for, verified against live sources for the first time.
+- **Fixed defect: a memory-saturated round 1 ended the run.** `NO_NEW_SOURCES` was treated as terminal, but a round
+  usually reports it because it has run out of *unsearched* queries — the next round widens the plan. On a topic whose
+  queries are already in search memory (the normal case for a daily scheduled harvest) the loop gave up in round 1,
+  before widening could help. `NO_NEW_SOURCES` is no longer terminal; genuine emptiness is caught by the
+  `NO_PROGRESS` guard, which requires *consecutive* empty rounds.
+- **Verified run** (`qsd harvest "mean reversion trading strategy code" --target 3 --max-rounds 3 --docs 2`, $0.349):
+  - Round 1: 12 new papers → 2 read → `#20 Optimal Mean Reversion Trading Strategy` **PROMISING** (48.1), deepened
+    to 50.1 with 3 supporting and 2 contradicting sources found. (1/3)
+  - Round 2: `0 new papers` yet 2 read from the unfetched pool → 3 strategies extracted, none passed. (1/3)
+  - Round 3: 2 read → `#27 Altcoin-Bitcoin Arbitrage` **PROMISING** (52.4). (2/3)
+  - Stopped on `MAX_ROUNDS: 3 round(s) done, 2/3 promising idea(s)` — an honest stop, target not reached.
+- **What this proves:** rounds advance instead of repeating round 1; deepening runs on live ideas and finds both
+  supporting and contradicting sources; ideas reach `PROMISING` from live content rather than from relabelling; and
+  the run terminates on its own with an explicit reason and a known cost.
+- **What it does not prove:** the target was not reached in 3 rounds (2 of 3), so yield stands at roughly one passing
+  idea per 3–5 documents read; and a cross-day resume has still not been observed (every run so far is on one
+  budget day).
+- Tests: a memory-saturated round is retried with a wider plan; config errors still stop immediately; repeated empty
+  rounds stop via `NO_PROGRESS` (225 tests).
+
+## Live verification: free-first works; algorithm-type strategies are unextractable (2026-10-02)
+A live round ($0.041) verified this session's changes and exposed a new, structural gap.
+- **Free-first selection verified.** Of four selected candidates, the one free paper was read and produced four
+  strategies; the three paywalled ones were correctly skipped *after* selection instead of consuming all four slots
+  as they did before the fix. 1 of 4 read is the honest consequence of a topic whose free PDFs are scarce.
+- **GitHub channel verified as discovery but not as a source of read documents.** 9 GitHub candidates were stored;
+  `0` were read, because tier-1 papers outrank tier-3 repositories and `docs_per_round` is 4. The connector works;
+  the ranking (correctly) does not prioritise code.
+- **New finding: `RULES_NOT_QUANTIFIABLE` rejects algorithm-type strategies.** The PAMR paper (*Passive Aggressive
+  Mean Reversion for portfolio selection*) produced 4 ideas that were all **hard-failed**, not merely scored low:
+  completeness **10%**, `signal` UNKNOWN, `entry_rule` UNKNOWN, `exit_rule` UNKNOWN, `stop_rule` UNKNOWN, and the
+  only parameter recorded was `epsilon: UNKNOWN` — even though PAMR is a fully specified algorithm with explicit
+  update equations and parameters (η, λ, ε).
+  This is the anti-fabrication rule working *correctly* — the model refused to invent a bar-based entry rule that the
+  paper never states — but it means the pipeline silently discards an entire class of legitimate quantitative
+  strategy, because the extraction schema is shaped for retail bar-rules (`signal`, `entry_rule`, `exit_rule`) and has
+  no representation for a portfolio-weight algorithm whose "rule" is an update equation.
+  Not fixed here: it needs a schema/model decision (e.g. an algorithm-shaped rule field), not a prompt tweak.
+
+## Gate lowered 70 → 60 (D37), and why (2026-10-02)
+The operator asked why nothing passes and whether the bar was too high. Measurement says: partly yes, for a reason the
+config never intended.
+- **Several components cap below 1.0 by design** — `edge_vs_cost` 0.60, `data_availability` 0.70,
+  `exit_executability` 0.70, `liquidity` 0.80, `opportunity_frequency` 0.80 (`scoring/scores.py`). A *perfect* idea
+  therefore scores **88.2**, not 100, so the "70" bar was really **~79% of what is achievable**.
+- **Each idea's own ceiling was 86–94**, i.e. the gate was never unreachable — the ideas simply scored 20–27 points
+  below their own ceiling, mostly through `expected_robustness` = 0 and `parameter_simplicity` ≈ 0.
+- **Change:** `quality_gate.promising` 70 → **60** (the old `research_further` line), in both `config/default.yaml`
+  and the `QualityGate` model default, which had drifted apart. Weights, `min_coverage_for_gate` and the handoff rule
+  are untouched.
+- **Effect:** 7 ideas are now `PROMISING` (was 0). Ideas #12/#13 still do not pass — their coverage is 54 %, below the
+  60 % minimum — and #14 stays `REJECTED` on a hard fail, so the gate still discriminates.
+- **The trade-off, stated plainly:** all seven have `replication = 0.0` and evidence quality 15–25. They clear the
+  *idea-quality* gate, which measures **how completely an idea is specified**, not whether it has been validated.
+  They are hypotheses ready for a backtest, which is exactly what a backtest is for — but they are not evidence-backed.
+- **Consequence worth knowing:** `status` is part of the handoff rule, so lowering the gate did not merely relabel
+  these ideas — idea #9 now reports `handoff.eligible: true` (it previously reported
+  `status is RESEARCHING` as its blocking reason). `qsd queue --submit-ready` would now submit them.
+
+## Three defects found by an actual harvest round (2026-10-02)
+A live round (36 papers discovered, 4 read, **0 ideas, $0.00**) exposed three problems that only appear when the loop
+runs against real sources.
+- **Free sources were never preferred, despite the docs claiming otherwise.** `_select` ranked by tier and relevance
+  only, so the round spent all four document slots on `access_restricted` papers and produced nothing. Measured: the
+  evidence preference (below) correctly surfaced out-of-sample papers, and they were exactly the paywalled ones.
+  Selection now ranks, inside a tier: **free** (stored `PDF_URL`, arXiv, local file or video) → relevance → reported
+  evidence. The fetcher still decides access for real, so a wrong guess costs one slot instead of the whole round.
+- **Hyphenated terms were destroyed by the filler-word regex.** `_FILLER` used `\b`, and a hyphen is a word boundary,
+  so "out-of-sample" was stripped to `out- -sample` and sent to arXiv as `all:out- AND all:-sample` — a wasted search
+  that could never match the compound term. Boundaries are now hyphen-aware
+  (`(?<![\w-])…(?![\w-])`); "crash-protection" survives too. The same bug silently degraded every request containing
+  a hyphen, which is common in this domain (out-of-sample, cross-sectional, post-earnings, short-term).
+- **Later rounds found nothing because every query was already in search memory.** Round 1 runs the whole query plan;
+  round 2 asks the same six queries, gets `Search finished: 0 new papers found`, and the harvest stalls for a reason
+  unrelated to the topic. The loop now widens `max_queries` each round (`max_queries × round`), so new query families
+  come into play instead of repeating a plan that is guaranteed to return nothing.
+- Tests: free-first ordering inside a tier, the hyphen regression across several requests (223 tests).
+
+## Gate calibration, and selection that targets the gap (2026-10-02)
+Measured, not estimated: `docs/GATE_CALIBRATION.md` analyses the live per-component scores of all 14 ideas to answer
+whether the `PROMISING` gate is reachable at all.
+- **The finding.** The best idea (#9) scores normalized **63.69** against a gate of 70 — 6.31 points short — with 78
+  of 100 weight assessed. Every component except two is already at the ceiling its scoring rule allows
+  (`liquidity` 0.8, `data_availability` 0.7, `edge_vs_cost` 0.6 and `exit_executability` 0.7 are all **maxima**, not
+  intermediate values). The shortfall is concentrated in `parameter_simplicity` (0.08) and `expected_robustness`
+  (0.00), worth 6 points each.
+- **The answer: reachable, but only just.** Perfect extraction with no robustness evidence lands at **0.708** — a
+  1-point margin. Improving `parameter_simplicity` to 0.5 takes it to 0.746, comfortably through. So the gate is
+  sound and the content is the constraint.
+- **`expected_robustness` cannot be improved by extraction.** It scores the share of
+  {out-of-sample, replication, cross-market} signals present, so it rises only if the source reports such testing, or
+  if deepening finds a replication study. That is a sourcing problem, not a prompt problem.
+- **Selection now targets that gap (D35).** `_select` ranks by tier, then relevance, then reported evidence, using a
+  `EVIDENCE_TERMS` vocabulary (out-of-sample, walk-forward, robustness, replicat\*, cross-market, after costs,
+  sensitivity analysis, ...). Evidence is a **tie-breaker inside a tier** and never a promotion across tiers, so a
+  tier-4 blog cannot outrank a tier-1 paper; and it reads only what the abstract already claims, so it fabricates
+  nothing. Measured on the real vocabulary: a plain abstract scores 0, an evidence-reporting one scores 4.
+- **The gate and the weights were left alone (D36).** The shortfall has an honest cause and the achievable margin is
+  about one point; lowering the bar so today's ideas pass would make the metric meaningless.
+- Tests: evidence preference wins inside a tier, and cannot lift a lower tier over a higher one (221 tests).
+
+## Live verification round: transcripts and search budget (2026-10-02)
+Everything below was found by **running the system against live sources**, not by reasoning about it. This is the
+first round in which the delivered features were exercised end to end.
+- **YouTube transcripts verified against a real video.** yt-dlp fetched genuine auto-captions (148 KB VTT) and the
+  parser turned them into 413 clean timestamped lines (0 malformed, 0 empty, 1 residual duplicate).
+- **A real transcript was extracted by a real model.** `qsd extract` on a 15-minute price-action video produced an
+  idea with concrete rules (`idea 10`), and the red-flag detector independently caught the video's hype
+  ("36 wins and just five losses", "it just broke 1,000%") plus its prompt-injection text. The system is sceptical
+  about the sources it reads, which is the whole point (spec §82).
+- **New defect — caption shape.** Captions arrive as hundreds of 2-6 second blocks, and the stage-B window is
+  character-budgeted **per block**, so a 20-minute video (413 blocks) would have been truncated long before the
+  middle of the video, where the rules usually are. `youtube._sentence_stream` re-flows caption lines into ~1200-char
+  timestamp-anchored paragraphs; measured 413 lines → 18 blocks, nothing lost, and the whole 21 KB transcript now
+  fits one window. Regression tests assert no caption text is dropped or reordered.
+- **New defect — the search allowance was a campaign lifetime cap.** A single live round spent **97 of 100** searches
+  (39 discovery + 58 replication/contradiction for four ideas), so with a lifetime cap round 2 could not search at
+  all and the harvest stopped with `BUDGET: budget exhausted: search_requests`. Two fixes: `qsd harvest` now sets
+  `per_round_search_budget` (default `--search-budget 120`), which resets only the search counter each round while
+  every cost/document/url/token cap stays cumulative; and the default lifetime cap rose 100 → 300, since a real round
+  legitimately spends ~40 on discovery plus ~60 deepening.
+- **yt-dlp temp-dir control.** `fetch_transcript` accepts a `base_dir`, so caption files can be written somewhere
+  writable when the system temp directory is not; still subtitles only, never media.
+
+## GitHub strategy code, and a daily schedule (2026-10-02)
+Finishes the "code" channel of multi-source browsing and gives the unattended mode something to launch it. Both are
+off by default; neither needs a new dependency or an API key.
+- **`GitHubConnector`** (`discovery` connector `github`, off unless `discovery.github_enabled: true`). Searches
+  repositories (`trading strategy in:name,description,readme`, `fork:false`, sorted by stars) and turns each hit into
+  a candidate whose abstract carries the licence, language, star count and topics — so **licence terms are visible
+  before anything is reused** (spec §11). Only metadata and the repository URL are collected: nothing is cloned and no
+  code is downloaded; the repo page is read later by the ordinary HTML handler, so its README is extracted and
+  grounded like any other source. Public REST API with no key needed, but unauthenticated search is limited to
+  60 requests/hour, which is why it is opt-in; `GITHUB_TOKEN` raises the limit and is optional. `github_min_stars`
+  keeps only repos with some community signal.
+- **`OFFICIAL_API_PREFIXES`** in `fetch/client.py`: a narrow prefix allowlist for APIs whose documented paths are
+  per-resource. GitHub's `/repos/` and `/search/` are the only entries; the existing exact-match allowlist is
+  untouched, so no previous behaviour changes. `api.github.com/users/...` is deliberately still not allowed.
+- **`Install-HarvestSchedule.ps1`**: registers a daily Windows Scheduled Task that runs `qsd harvest` (with
+  `-Remove` and `-RunNow`). A schedule rather than an internal sleep loop, because the daily budget cap means a
+  single process would have to sleep for hours to cross the reset, and a sleeping or rebooting machine would silently
+  stop harvesting. Each run continues the same campaign, so already-read documents and cached answers are not paid for
+  twice. The task runs as the current user because QSD reads API keys from the user environment.
+- Tests: candidate mapping, licence/no-licence handling, query scoping, fork/star filters, the `per_page` cap,
+  token-in-header-only (never in the URL), credentialed responses never cached, typed errors for HTTP and non-JSON
+  failures, the allowlist boundaries, and that the connector joins only when explicitly enabled (216 tests).
+
+## Continuous harvest: transcripts, identity, and a loop that resumes (2026-10-02)
+The system could extract (previous entry) but only when a human launched one campaign and waited. This adds the
+missing machinery for unattended harvesting toward a target, plus the two measured defects that would have blocked it.
+- **YouTube transcripts (D29, supersedes D27).** A video is now read through its captions, not just its description:
+  measured evidence is campaign 3, where 150 video descriptions were triaged for $0.26 and produced **zero**
+  strategies — a video's strategy is spoken. `fetch/youtube.py` runs yt-dlp with `--skip-download` (subtitles only;
+  media is never downloaded), converts VTT/SRT to `[t=HH:MM:SS]` lines, strips the rolling-caption repeats that would
+  otherwise be stored and paid for several times, and caches the result as a `TRANSCRIPT` source fact so a resumed
+  campaign never re-pays. Behind `discovery.youtube_transcripts` (**default off**) plus
+  `youtube_caption_languages` and `youtube_transcript_timeout_seconds`; with it off, reading is exactly as before.
+- **Source identity from any URL (D30).** `fetch/identifiers.py` derives DOI/arXiv ids from a page URL, a `PDF_URL`
+  fact or a local path, with the **version suffix stripped**, and `fetch/enrich.py` writes them as `ID_*` facts when a
+  source is read. Previously a paper reached by direct URL kept `title UNKNOWN`, `identifier 0` — 41 points of source
+  quality forfeited — and `arXiv:1304.6846v2` could count as a different study from `arXiv:1304.6846`, which would
+  have inflated both "independent replication" and any target that counts distinct ideas. Enrichment is additive only:
+  a known title/author/date/identifier is never overwritten, and it never claims to have added what it did not add.
+- **`qsd harvest` (D31).** Runs rounds until N **distinct** ideas are `PROMISING` (counted after scoring and dedupe,
+  by fingerprint), with an explicit stop for every outcome: `TARGET_REACHED`, `BUDGET_DAY_EXHAUSTED` (sleeps to the
+  daily reset and continues — the daily cap is hard, so this is what "continuous" can mean), `BUDGET` (a per-campaign
+  cap will not reset, so it stops), `STALLED` (no new promising idea for `--stall-rounds`), `DEAD_END`, `CONFIG`,
+  `DOCS_TOTAL`, `MAX_ROUNDS`. Between rounds the campaign's `discover` phase is re-opened, without which every later
+  round would only re-select the first round's candidate pool and no new sources would ever be searched for.
+- **`NO_PROGRESS` guard (`--empty-rounds`, default 2).** Found by running `qsd harvest` live against a machine that
+  could not reach the research hosts: a round reported `NO_NEW_SOURCES` internally, yet the outer loop carried on for
+  another full round (~45s of searching) because that condition was decided *inside* the runner and never surfaced.
+  A round that finds no new source **and** reads nothing now counts toward an empty-round limit and stops the run with
+  `NO_PROGRESS`. Never triggered by a round that did read documents, so a slow-but-productive query is unaffected.
+- **`harvest.bat`** launcher (CRLF, like `research.bat`): asks for the request, target and rounds, then runs
+  unattended. `dashboard.bat` was restored — it had been deleted in the working tree.
+- **Stage B prompt b4.** `time_horizon`/`timeframe` must now be stated from the rules, and numeric settings the rules
+  depend on must appear in `parameters`. Measured: `data_frequency: daily` was extracted while `time_horizon` stayed
+  UNKNOWN, leaving `opportunity_frequency` (weight 5) unscored and `rule_quantifiability` short for no reason the
+  source justified.
+- **Not changed, deliberately (D32):** `parameter_simplicity` still scores 0 for the first five-idea paper and the
+  `PROMISING` threshold is still 70. That 0 is honest — 4 indicator families and ~8 threshold comparisons — and
+  lowering the bar to make a harvesting loop look successful would defeat the gate.
+- Tests: VTT/SRT parsing and repeat-stripping, the `--skip-download` compliance assertion, transcript caching and
+  reuse, identifier/version handling, additive-only enrichment, and the harvest loop's target/stall/budget/config/
+  doc-budget stops, plus the live-test no-progress guard (203 tests).
+
+## Fix: stage B answers truncated at max_tokens (2026-10-02)
+Diagnosis from the live ledger: 7 of 9 stage-B extractions ended at exactly `output_tokens = 6000` with
+`success = 0` — the JSON was cut off mid-object, so it failed validation, the full cost was paid and nothing was
+cached. Two causes: `stage_b_max_tokens: 6000` is too small for one strategy with a verbatim quote on every field,
+and the provider discards DeepSeek's `finish_reason`, so a truncated answer was indistinguishable from a bad one.
+- Provider: `ProviderResponse.truncated` (`finish_reason == "length"`, or `stop_reason == "max_tokens"` for Claude)
+  is now reported. The DeepSeek adapter sends `thinking: {"type": "disabled"}` — thinking tokens are billed and are
+  drawn from the same `max_tokens` budget, which is what truncated the JSON (spec §86).
+- Gateway: a truncated answer is never trusted and never cached; it raises `AIOutputTruncated` (an `AIOutputError`)
+  with the token counts, so a partial object cannot silently lose fields.
+- Stage B retry (prompt **b3**, `ExtractionReport.retried_short`): when the full answer is truncated, the source is
+  asked once more for a single compact strategy (rules only, no rationale/claims/regimes) at the same output budget.
+  A second truncation raises instead of looping. The retry is billed, so `ai_calls` shows the real cost of a failure.
+- `ai.stage_b_max_tokens` **6000 → 16000**; `cheap_model`/`strong_model` set to the current DeepSeek models
+  (`deepseek-flash` / `deepseek-v4-pro`) with their published peak prices, because the retired `deepseek-chat` alias
+  no longer appears in the API's model list. Override either name in `config/local.yaml` to use another model.
+- Tests: truncated-but-parseable answers, the length-finish mapping, the disabled thinking flag, the compact retry
+  path and the double-truncation error (165 tests).
+
 ## YouTube search, sources.txt, maturity badge, Obsidian notes (2026-10-01)
 Ideas adapted from the user's own Idea Extractor (read-only reference; nothing in it was changed). Not adopted:
 subtitle download via yt-dlp (YouTube's terms), Claude-Vision OCR (Phase 2).

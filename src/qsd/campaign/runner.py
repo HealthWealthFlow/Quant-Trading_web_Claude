@@ -21,11 +21,22 @@ from ..db.models import Campaign, ErrorRecord, FetchLog, Idea, IdeaSource, Sourc
 from ..discovery import BudgetExhausted, CampaignBudget, build_queries, run_discovery
 from ..discovery.connectors import Connector
 from ..fetch.client import PoliteFetcher
+from ..fetch.enrich import enrich_source
 from ..fetch.pipeline import apply_result
+from ..fetch.youtube import CAPTION_FACT, Transcript, TranscriptError, fetch_transcript
 from ..handlers import parse_bytes, parse_file
 from ..scoring import score_idea
 from ..security import wrap_untrusted
-from ..taxonomy import AccessStatus, AssetClass, CampaignStatus, IdeaSourceRole, IdeaStatus, MarketRegime
+from ..taxonomy import (
+    UNKNOWN,
+    AccessStatus,
+    AssetClass,
+    CampaignStatus,
+    ExtractionMethod,
+    IdeaSourceRole,
+    IdeaStatus,
+    MarketRegime,
+)
 from .parse import CampaignSpec, parse_request
 
 RELATION_ROLES = {"REPLICATES": IdeaSourceRole.REPLICATES, "SUPPORTS": IdeaSourceRole.SUPPORTS,
@@ -62,15 +73,53 @@ def _relevance(text: str, terms: list[str]) -> int:
     return sum(1 for term in terms if term and term.lower() in t)
 
 
+# Calibrated from the live score table (docs/GATE_CALIBRATION.md): the best idea falls 6.31 points short of the
+# PROMISING gate and `expected_robustness` is 0.00 on 14 of 15 ideas. That component scores the share of
+# {out-of-sample, replication, cross-market} evidence present, so a source whose own abstract reports such testing
+# is materially more likely to clear the gate than one that does not. This is a retrieval preference only: it never
+# invents evidence, it only reads what the source already says.
+EVIDENCE_TERMS = (
+    "out-of-sample", "out of sample", "oos ", "holdout", "hold-out", "walk-forward", "walk forward",
+    "robustness", "robust to", "replicat", "cross-market", "cross market", "across markets", "multiple markets",
+    "international evidence", "subsample", "sub-sample", "sensitivity analysis", "parameter sensitivity",
+    "transaction cost", "trading cost", "after costs", "net of costs", "backtest", "back-test",
+)
+
+
+def _evidence_hits(text: str) -> int:
+    """How many distinct robustness/validation signals the text itself claims."""
+    t = text.lower()
+    return sum(1 for term in EVIDENCE_TERMS if term in t)
+
+
+def _looks_free(src, facts: dict) -> bool:
+    """Whether a stored open copy is likely: an explicit PDF link, an arXiv page, a local file or a video.
+
+    Deliberately generous and purely a *ranking* signal — the fetcher still decides access for real, and a wrong
+    guess costs one document slot, not correctness.
+    """
+    if facts.get("PDF_URL") or src.local_path:
+        return True
+    url = (src.url or src.canonical_url or "").lower()
+    return any(token in url for token in ("arxiv.org", "youtube.com/watch", ".pdf", "openaccess", "ssrn.com"))
+
+
 class CampaignRunner:
     def __init__(self, engine: Engine, settings: Settings, fetcher: PoliteFetcher, gateway: AIGateway,
-                 connectors: list[Connector], limits: CampaignLimits | None = None, on_event=None):
+                 connectors: list[Connector], limits: CampaignLimits | None = None, on_event=None,
+                 per_round_search_budget: bool = False):
         """`on_event(phase, message)` receives every progress message (e.g. to print it); the same messages and
-        counters are stored in `campaigns.state["progress"]` for the dashboard's live monitor."""
+        counters are stored in `campaigns.state["progress"]` for the dashboard's live monitor.
+
+        `per_round_search_budget` gives every run a fresh search allowance instead of the campaign-lifetime one. A
+        harvest is one campaign spanning many rounds, and with a lifetime cap the searches spent on discovery and
+        deepening in round 1 would block every later round (measured: a single round used 97 of 100).
+        """
         self.engine, self.settings, self.fetcher, self.gw = engine, settings, fetcher, gateway
         self.connectors = connectors
         self.limits = limits or CampaignLimits()
         self.on_event = on_event
+        self.per_round_search_budget = per_round_search_budget
 
     # -- campaign persistence -----------------------------------------------------------------------------------
 
@@ -151,7 +200,8 @@ class CampaignRunner:
 
     # -- phases ---------------------------------------------------------------------------------------------------
 
-    def _discover(self, cid: int, spec: CampaignSpec, budget: CampaignBudget) -> int:
+    def _discover(self, cid: int, spec: CampaignSpec, budget: CampaignBudget,
+                  extra_queries: list[str] | None = None) -> int:
         found_total = [0]
 
         def on_search(conn: str, query: str, found, new: int, done: int, total: int) -> None:
@@ -165,6 +215,10 @@ class CampaignRunner:
         regimes = [MarketRegime(r) for r in spec.regimes] or None
         extra = [spec.core_query] if spec.core_query else []
         extra += [f"{f} {' '.join(a.lower() for a in spec.asset_classes)}".strip() for f in spec.families]
+        # Self-directed directions go first: in a multi-round harvest the static plan is exhausted after round 1
+        # (every query lands in search memory), so these — derived from what the campaign actually extracted — are the
+        # only queries likely to return anything new.
+        extra = list(extra_queries or []) + extra
         queries = extra + build_queries(assets, regimes, limit=self.limits.max_queries)
         rep = run_discovery(self.engine, self.connectors, queries[:self.limits.max_queries], budget,
                             limit_per_query=self.limits.results_per_query,
@@ -177,7 +231,18 @@ class CampaignRunner:
         return rep.new_sources
 
     def _select(self, cid: int, spec: CampaignSpec, done: set[int]) -> list[tuple[int, str]]:
-        """Rank unfetched campaign sources by tier and abstract relevance (cheap, deterministic; spec §84)."""
+        """Rank unfetched campaign sources by tier, free access, relevance and reported evidence (spec §84).
+
+        Order of preference inside a tier:
+        1. **free** — a stored `PDF_URL` (usually an open copy), an arXiv link, a local file or a video. Ranking a
+           paywall first wastes one of the round's few document slots: measured live, a round selected four
+           `access_restricted` papers and produced nothing at all.
+        2. relevance to the request.
+        3. reported robustness evidence (`expected_robustness` is 0.00 on almost every idea measured; see
+           docs/GATE_CALIBRATION.md).
+
+        Tier still dominates all three, so a paywalled tier-1 paper is read before a free tier-4 blog.
+        """
         terms = spec.families + [w for w in spec.core_query.split() if len(w) > 3] + \
             [a.lower() for a in spec.asset_classes]
         with session_scope(self.engine) as s:
@@ -192,26 +257,65 @@ class CampaignRunner:
                 target = facts.get("PDF_URL") or src.url or src.local_path
                 if not target:
                     continue
-                rel = _relevance(f"{src.title} {facts.get('ABSTRACT', '')}", terms)
-                ranked.append(((src.tier or 9), -rel, src.id, target))
+                text = f"{src.title} {facts.get('ABSTRACT', '')}"
+                rel = _relevance(text, terms)
+                evidence = _evidence_hits(text)
+                # descending on (free, relevance, evidence) inside an ascending tier: negate the descending keys
+                ranked.append((src.tier or 9, 0 if _looks_free(src, facts) else 1, -rel, -evidence, src.id, target))
         ranked.sort()
-        return [(sid, url) for _t, _r, sid, url in ranked[:self.limits.docs_per_round]]
+        return [(sid, url) for _t, _f, _r, _e, sid, url in ranked[:self.limits.docs_per_round]]
 
-    def _video_description(self, source_id: int):
-        """A YouTube video is read through its API metadata: title + description (never downloaded or scraped)."""
+    def _video_description(self, source_id: int, cid: int | None = None):
+        """A YouTube video is read through its API metadata: title, description and — when enabled — its captions.
+
+        The video file itself is never downloaded: caption text only (DECISIONS D29).
+        """
         with session_scope(self.engine) as s:
             src = s.get(Source, source_id)
             facts = {f.fact_type: f.value for f in s.scalars(select(SourceFact).where(
                 SourceFact.source_id == source_id))}
             if "ID_YOUTUBE" not in facts:
                 return None, False
-            text = f"{src.title}\n\nChannel: {src.author}\n\n{facts.get('ABSTRACT', '')}".strip()
+            if not src.title or src.title == UNKNOWN:
+                src.title = f"YouTube video {facts['ID_YOUTUBE']}"[:2000]
+            # Prefer the spoken content: a description is a title, links and marketing, while the strategy itself
+            # is in the transcript. Falls back to the description whenever captions are unavailable.
+            transcript = facts.get(CAPTION_FACT)
+            if not transcript and self.settings.discovery.youtube_transcripts:
+                transcript = self._fetch_transcript(cid, source_id, facts["ID_YOUTUBE"])
+            body = transcript or facts.get("ABSTRACT", "")
+            text = f"{src.title}\n\nChannel: {src.author}\n\n{body}".strip()
             s.add(FetchLog(source_id=source_id, page_url=src.url, request_url=src.url, status_code=200,
-                           content_type="text/plain", retrieval_method="API_METADATA"))
+                           content_type="text/plain", retrieval_method="API_TRANSCRIPT" if transcript
+                           else "API_METADATA"))
             src.retrieved_at, src.access_status = datetime.now(UTC), AccessStatus.OK
-            result = parse_bytes(text.encode("utf-8"), name="youtube-description.txt", content_type="text/plain")
-            src.format = "youtube-description"
+            if transcript:
+                src.format = "youtube-transcript"
+                # The transcript is untrusted like any fetched page: `parse_bytes` scans it for injection text and
+                # `extract_ideas` wraps it before it reaches a model, while grounding validates quotes against this
+                # same raw text (wrapping here would break every quote).
+                result = parse_bytes(text.encode("utf-8"), name="youtube-transcript.txt", content_type="text/plain")
+            else:
+                result = parse_bytes(text.encode("utf-8"), name="youtube-description.txt", content_type="text/plain")
+                src.format = "youtube-description"
             return result, True
+
+    def _fetch_transcript(self, cid: int | None, source_id: int, video_id: str) -> str | None:
+        """Captions for one video, cached as a source fact so a resumed campaign never pays for them twice."""
+        try:
+            got: Transcript | None = fetch_transcript(
+                video_id, languages=self.settings.discovery.youtube_caption_languages,
+                timeout=self.settings.discovery.youtube_transcript_timeout_seconds)
+        except TranscriptError as e:
+            self._error(cid, "transcript", str(source_id), "YouTubeTranscript", e)
+            return None
+        if got is None:
+            return None
+        with session_scope(self.engine) as s:
+            s.add(SourceFact(source_id=source_id, fact_type=CAPTION_FACT, value=got.text,
+                             location=f"t={got.language}", extraction_method=ExtractionMethod.DETERMINISTIC,
+                             confidence=1.0))
+        return got.text
 
     def _local_file(self, source_id: int):
         """Sources from sources.txt can be files on this computer: parsed read-only, never uploaded."""
@@ -228,12 +332,13 @@ class CampaignRunner:
                 return None, True
             result = parse_file(path)
             apply_result(src, result)
+            enrich_source(s, src, result, local_path=path)
             src.access_status = result.access_status
             _reapply_title(s, src)
             return result, True
 
     def _fetch_into(self, cid: int, source_id: int, url: str):
-        video, is_video = self._video_description(source_id)
+        video, is_video = self._video_description(source_id, cid)
         if is_video:
             return video
         local, is_local = self._local_file(source_id)
@@ -314,7 +419,7 @@ class CampaignRunner:
 
     # -- main -------------------------------------------------------------------------------------------------
 
-    def run(self, cid: int) -> CampaignReport:
+    def run(self, cid: int, extra_queries: list[str] | None = None) -> CampaignReport:
         with session_scope(self.engine) as s:
             c = s.get(Campaign, cid)
             spec = CampaignSpec(**c.spec)
@@ -323,6 +428,10 @@ class CampaignRunner:
         state = self._state(cid)
         budget = CampaignBudget(self.settings.budgets)
         budget.spent.update(state.get("spent", {}))
+        if self.per_round_search_budget:
+            # A new round gets a new search allowance; every other cap (cost, documents, urls, tokens) stays
+            # cumulative, so an unattended harvest still cannot outspend its budget.
+            budget.spent["search_requests"] = 0.0
         self.gw.budget = budget  # AI calls count against the same campaign caps (spec §45)
         report = CampaignReport(cid, "RUNNING", None, spec.to_dict())
         done_docs = set(state.get("processed_sources", []))
@@ -332,7 +441,7 @@ class CampaignRunner:
         try:
             if "discover" not in state.get("phases_done", []):
                 self._note(cid, budget, "search", "Searching arXiv, OpenAlex and Crossref for papers ...")
-                report.new_sources = self._discover(cid, spec, budget)
+                report.new_sources = self._discover(cid, spec, budget, extra_queries=extra_queries)
                 self._save(cid, budget, phases_done=state.get("phases_done", []) + ["discover"])
                 report.phases.append("discover")
                 self._note(cid, budget, "search", f"Search finished: {report.new_sources} new papers found")

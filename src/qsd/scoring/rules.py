@@ -54,7 +54,8 @@ class HardFail:
     detail: str
 
 
-def hard_fails(rule_text: str, red_flags: list[str], completeness: float, signal: str) -> list[HardFail]:
+def hard_fails(rule_text: str, red_flags: list[str], completeness: float, signal: str,
+               algorithm_rule: str = UNKNOWN) -> list[HardFail]:
     out: list[HardFail] = []
     if "MARTINGALE" in red_flags or "DOUBLE_AFTER_LOSS" in red_flags:
         out.append(HardFail(RejectionReason.MARTINGALE, "martingale / doubling after losses"))
@@ -67,7 +68,12 @@ def hard_fails(rule_text: str, red_flags: list[str], completeness: float, signal
     if len(set(red_flags) & SCAM_FLAGS) >= 2:
         out.append(HardFail(RejectionReason.SCAM_SIGNAL_SOURCE, "multiple promotional red flags: " +
                             ", ".join(sorted(set(red_flags) & SCAM_FLAGS))))
-    if completeness < 20 and signal == UNKNOWN:
+    # A portfolio-weight or model-driven strategy legitimately has no bar-rule: its decision is an update equation.
+    # Rejecting it for lacking `signal` discards fully specified research (measured: the PAMR paper produced four
+    # ideas, all hard-failed at completeness 10 with every bar-rule UNKNOWN, though the algorithm is explicit — D38).
+    # A genuinely empty extraction still fails, because then there is no rule of any kind.
+    has_algorithm = bool(algorithm_rule and algorithm_rule != UNKNOWN)
+    if completeness < 20 and signal == UNKNOWN and not has_algorithm:
         out.append(HardFail(RejectionReason.RULES_NOT_QUANTIFIABLE, f"completeness {completeness:.0f} and no signal"))
     return out
 

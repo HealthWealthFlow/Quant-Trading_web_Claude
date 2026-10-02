@@ -30,6 +30,10 @@ class AIOutputError(RuntimeError):
     pass
 
 
+class AIOutputTruncated(AIOutputError):
+    """The model hit max_tokens before it finished: the answer is partial, not wrong (spec §86 stage B)."""
+
+
 class UnpricedModelError(RuntimeError):
     pass
 
@@ -139,12 +143,19 @@ class AIGateway:
             self.budget.spent["ai_tokens"] = self.budget.spent.get("ai_tokens", 0) + resp.input_tokens + \
                 resp.output_tokens
             self.budget.spent["ai_cost_usd"] = self.budget.spent.get("ai_cost_usd", 0.0) + cost
-        try:
-            data = _extract_json(resp.text)
-            obj = schema.model_validate(data)
-            ok = True
-        except (AIOutputError, ValidationError) as e:
-            ok, error = False, e
+        if resp.truncated:
+            # A partial answer is never a usable one: it must not be cached, and the caller has to know it was cut
+            # off so it can ask for less (spec §86). Validation of a partial object would silently drop content.
+            ok, error = False, AIOutputTruncated(
+                f"{task}: output truncated at max_tokens={max_tokens} after {resp.output_tokens} token(s); "
+                "the partial answer was not cached")
+        else:
+            try:
+                data = _extract_json(resp.text)
+                obj = schema.model_validate(data)
+                ok = True
+            except (AIOutputError, ValidationError) as e:
+                ok, error = False, e
         with session_scope(self.engine) as s:
             s.add(AICall(**ledger, cache_hit=False, input_tokens=resp.input_tokens, output_tokens=resp.output_tokens,
                          cost_usd=cost, latency_ms=resp.latency_ms, success=ok))
@@ -153,5 +164,6 @@ class AIGateway:
                               prompt_version=prompt_version, content_hash=content_hash,
                               response=obj.model_dump(mode="json")))
         if not ok:
-            raise AIOutputError(f"{task}: model output failed validation: {str(error)[:300]}")
+            raise error if isinstance(error, AIOutputError) else AIOutputError(
+                f"{task}: model output failed validation: {str(error)[:300]}")
         return obj, CallInfo(False, cost, resp.input_tokens, resp.output_tokens, resp.model)

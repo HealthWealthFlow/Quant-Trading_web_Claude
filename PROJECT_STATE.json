@@ -56,18 +56,22 @@
     }
   ],
   "phase_2_backlog": [
-    "YouTube (Data API + captions)",
+    "YouTube (Data API + captions) — DONE 2026-10-02 as an opt-in extra (D29): captions read via yt-dlp, subtitles only",
+    "Continuous harvest (`qsd harvest`) — DONE 2026-10-02 (D31): rounds toward a preset PROMISING-idea target with budget-day resume",
+    "General web-search connector (blogs, broker research, Substack) — needs a search API key (Brave/Tavily); no key is configured on this machine",
     "Audio/video transcription (local Whisper, selective)",
-    "GitHub handler + license tracking",
+    "GitHub handler + license tracking — DONE 2026-10-02 (D33): GitHubConnector, metadata + licence only, off by default",
+    "Windows Task Scheduler wrapper — DONE 2026-10-02 (D34): Install-HarvestSchedule.ps1",
     "Community sources via official APIs",
     "Browser DevTools/network adapter (public only, classification + redaction)",
     "Source graph, author/organization discovery",
-    "Watchlists + scheduled refresh",
+    "Per-channel yield accounting: promising ideas per dollar, to favour channels that actually clear the gate",
     "Self-improving source prioritization",
     "Research graph view",
     "Postgres",
     "Quant Auto OS integration"
   ],
+  "open_question": "P4 calibration not yet run: the best measured idea scores idea-quality 63.1-63.7 against the PROMISING gate of 70, and expected_robustness is 0.0 on every idea because deepening had never run. Run `qsd harvest --target 3 --max-rounds 3` and decide from the measured component table whether the gate is calibrated for retail technical analysis, rather than lowering it blind.",
   "last_commit": "see git log",
-  "updated_at": "2026-10-01"
+  "updated_at": "2026-10-02"
 }

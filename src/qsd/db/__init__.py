@@ -42,6 +42,10 @@ MIGRATIONS: dict[int, list[str]] = {
     2: ["ALTER TABLE campaigns ADD COLUMN spec JSON NOT NULL DEFAULT '{}'",
         "ALTER TABLE campaigns ADD COLUMN state JSON NOT NULL DEFAULT '{}'"],
     3: ["ALTER TABLE ideas ADD COLUMN grounding JSON NOT NULL DEFAULT '{}'"],
+    # v5: algorithm-shaped strategies (portfolio weights, model-driven rules) get their own representation instead of
+    # being hard-failed for lacking a bar-rule. Additive only: existing rows stay UNKNOWN (D38).
+    4: ["ALTER TABLE ideas ADD COLUMN strategy_kind TEXT NOT NULL DEFAULT 'UNKNOWN'",
+        "ALTER TABLE ideas ADD COLUMN algorithm_rule TEXT NOT NULL DEFAULT 'UNKNOWN'"],
 }
 
 

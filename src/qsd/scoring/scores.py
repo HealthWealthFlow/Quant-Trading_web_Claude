@@ -91,7 +91,9 @@ class IdeaScore:
         return None if self.coverage == 0 else self.score / self.coverage
 
 
-_TEXT_FIELDS = ("instrument", "universe", "signal", "entry_rule", "exit_rule", "stop_rule", "risk_rules", "summary")
+_TEXT_FIELDS = ("instrument", "universe", "signal", "entry_rule", "exit_rule", "stop_rule", "risk_rules", "summary",
+                # an algorithm-shaped strategy states its rule here instead of in signal/entry_rule
+                "algorithm_rule")
 
 
 def _rules_text(idea) -> str:

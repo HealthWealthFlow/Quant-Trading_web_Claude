@@ -391,16 +391,94 @@ class YouTubeConnector(Connector):
         return out
 
 
+class GitHubConnector(Connector):
+    """Strategy code on GitHub (spec §11: "GitHub handler with licence tracking").
+
+    A repository is not a paper, but its README usually states the rules, the instruments and the parameters, and code
+    is the most literal statement of a strategy that exists anywhere. The repository page is handed to the ordinary
+    HTML handler, so its README is extracted and grounded like any other source, and the licence is recorded in the
+    abstract so a downstream system can see the terms before reusing anything.
+
+    Public REST API, no key required (60 requests/hour unauthenticated; `GITHUB_TOKEN` raises this to 5000 and is
+    optional). Only metadata and the repository URL are collected here — no cloning, no code download.
+    """
+
+    name = "github"
+    API = "https://api.github.com"
+    TOKEN_ENV = "GITHUB_TOKEN"
+
+    def __init__(self, fetcher: PoliteFetcher, contact_email: str | None = None, api_key: str | None = None,
+                 include_forks: bool = False, min_stars: int = 0):
+        super().__init__(fetcher, contact_email)
+        self.api_key = api_key
+        self.include_forks = include_forks
+        self.min_stars = min_stars
+        self.headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        if api_key:
+            self.headers["Authorization"] = f"Bearer {api_key}"
+
+    def _api_get(self, url: str) -> dict:
+        resp = self.fetcher.fetch(url, official_api=True, extra_headers=self.headers)
+        if not resp.ok or resp.content is None:
+            raise ConnectorError(f"{self.name}: {resp.access_status.value} {resp.error or ''}".strip())
+        try:
+            data = json.loads(resp.content)
+        except ValueError:
+            raise ConnectorError(f"{self.name}: response was not JSON") from None
+        if not isinstance(data, dict):
+            raise ConnectorError(f"{self.name}: unexpected response shape")
+        return data
+
+    def search(self, query: str, limit: int = 10) -> list[Candidate]:
+        """Repositories whose name/description/README mentions the query and trading-strategy vocabulary."""
+        q = f"{query} trading strategy in:name,description,readme"
+        if not self.include_forks:
+            q += " fork:false"
+        if self.min_stars:
+            q += f" stars:>={self.min_stars}"
+        params = urlencode({"q": q, "sort": "stars", "order": "desc", "per_page": max(1, min(limit, 30))})
+        data = self._api_get(f"{self.API}/search/repositories?{params}")
+        out: list[Candidate] = []
+        for repo in data.get("items") or []:
+            full = _clean(repo.get("full_name"))
+            if not full:
+                continue
+            c = Candidate(self.name, work_type="repository", url=repo.get("html_url"))
+            c.title = full
+            owner = _clean((repo.get("owner") or {}).get("login"))
+            c.authors = [owner] if owner else []
+            c.venue = "GitHub"
+            c.publication_date = (repo.get("pushed_at") or repo.get("created_at") or "")[:10] or UNKNOWN
+            licence = _clean((repo.get("license") or {}).get("spdx_id"))
+            stars = repo.get("stargazers_count")
+            topics = ", ".join(repo.get("topics") or [])
+            c.abstract = " | ".join(part for part in (
+                _clean(repo.get("description")) or None,
+                f"language: {repo['language']}" if repo.get("language") else None,
+                f"stars: {stars}" if stars is not None else None,
+                f"licence: {licence}" if licence and licence.upper() != "NOASSERTION" else None,
+                f"topics: {topics}" if topics else None,
+            ) if part) or None
+            c.ids["github"] = full.lower()
+            out.append(c)
+        return out
+
+
 CONNECTORS = {"arxiv": ArxivConnector, "openalex": OpenAlexConnector, "crossref": CrossrefConnector,
-              "youtube": YouTubeConnector}
+              "youtube": YouTubeConnector, "github": GitHubConnector}
 PAPER_CONNECTORS = ("arxiv", "openalex", "crossref")
 
 
 def build_connectors(fetcher: PoliteFetcher, settings, names: list[str] | None = None) -> list[Connector]:
-    """Connectors for a run. YouTube joins only when enabled and YOUTUBE_API_KEY is set."""
+    """Connectors for a run.
+
+    YouTube joins only when enabled and `YOUTUBE_API_KEY` is set; GitHub joins only when enabled (its unauthenticated
+    search allowance is small), with `GITHUB_TOKEN` optional to raise it.
+    """
     from ..config import get_secret
 
     key = get_secret("YOUTUBE_API_KEY")
+    token = get_secret(GitHubConnector.TOKEN_ENV)
     out: list[Connector] = []
     for name in names or list(CONNECTORS):
         if name == "youtube":
@@ -409,6 +487,14 @@ def build_connectors(fetcher: PoliteFetcher, settings, names: list[str] | None =
                                             max_results=settings.discovery.youtube_results_per_query))
             elif names:  # explicitly requested but unavailable
                 raise ConnectorError("youtube: set the YOUTUBE_API_KEY environment variable first")
+            continue
+        if name == "github":
+            if settings.discovery.github_enabled:
+                out.append(GitHubConnector(fetcher, settings.discovery.contact_email, api_key=token,
+                                           min_stars=settings.discovery.github_min_stars))
+            elif names:
+                raise ConnectorError("github: set discovery.github_enabled: true first (no API key needed, "
+                                     "but unauthenticated search is limited to 60 requests/hour)")
             continue
         out.append(CONNECTORS[name](fetcher, settings.discovery.contact_email))
     return out

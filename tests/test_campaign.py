@@ -9,10 +9,10 @@ from qsd.ai import AIGateway, ProviderResponse
 from qsd.campaign import CampaignLimits, CampaignRunner, parse_request
 from qsd.config import DEFAULT_CONFIG, load_settings
 from qsd.db import init_db, make_engine, session_scope
-from qsd.db.models import AICall, Campaign, Idea, IdeaSource
+from qsd.db.models import AICall, Campaign, Idea, IdeaSource, Source, SourceFact
 from qsd.discovery import OpenAlexConnector
 from qsd.fetch import PoliteFetcher
-from qsd.taxonomy import CampaignStatus, IdeaSourceRole
+from qsd.taxonomy import CampaignStatus, ExtractionMethod, IdeaSourceRole
 
 PAPER_PAGES = [
     "Crash protection with trend following ETFs. We hold SPY when its 10-month moving average is rising.",
@@ -106,7 +106,7 @@ class ScriptedAI:
             out = CONTRADICTS
         else:
             out = INVENTED  # relation claim with an invented quote → must be rejected by grounding
-        return ProviderResponse(json.dumps(out), 800, 150, 3, model)
+        return ProviderResponse(json.dumps(out), 800, 150, 3, model, truncated=False)
 
 
 class Clock:
@@ -139,6 +139,94 @@ def test_parse_request():
     assert spec.asset_classes == ["ETF"] and spec.regimes == ["CRASH"] and "trend following" in spec.families
     spec2 = parse_request("recent crypto funding rate strategies for sideways markets")
     assert spec2.asset_classes == ["CRYPTO"] and spec2.regimes == ["CONSOLIDATION"] and spec2.mode == "RECENT_ONLY"
+
+
+def test_hyphenated_terms_survive_the_filler_words():
+    """Measured bug: the filler regex used `\\b`, and a hyphen is a word boundary, so the `of` inside
+    "out-of-sample" was stripped and the query became "out- -sample" — which went straight into the arXiv query as
+    `all:out- AND all:-sample`, wasting a search and never matching the compound term."""
+    import re
+
+    spec = parse_request("trend following strategies with out-of-sample evidence")
+    assert spec.core_query == "trend following out-of-sample evidence"
+    terms = re.findall(r"[A-Za-z0-9\-]+", spec.core_query)
+    assert "out-of-sample" in terms and "out-" not in terms and "-sample" not in terms
+    # and the same for a term the operator naturally writes with a hyphen
+    assert parse_request("Find crash-protection ETF strategies").core_query.startswith("crash-protection")
+
+
+def test_selection_prefers_sources_that_report_evidence(setup):
+    """Calibration-driven: `expected_robustness` is 0.00 on almost every idea, and a source whose abstract reports
+    out-of-sample / replication testing is the cheapest way to change that. Evidence is a tie-breaker inside a tier,
+    never a promotion across tiers, and it reads only what the source already claims."""
+    from qsd.taxonomy import AccessStatus
+
+    s, e, runner, _ai = setup
+    runner.limits.docs_per_round = 1
+    spec = parse_request("trend following ETF strategies")
+    cid = runner.create("trend following ETF strategies")
+    with session_scope(e) as sess:
+        plain = Source(campaign_id=cid, title="Trend following in ETFs", tier=1,
+                       access_status=AccessStatus.NOT_FETCHED, url="https://example.test/plain")
+        robust = Source(campaign_id=cid, title="Trend following in ETFs", tier=1,
+                        access_status=AccessStatus.NOT_FETCHED, url="https://example.test/robust")
+        sess.add_all([plain, robust])
+        sess.flush()
+        # same relevance for both; only the evidence vocabulary differs
+        sess.add(SourceFact(source_id=plain.id, fact_type="ABSTRACT", value="We study a trend strategy.",
+                            extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1.0))
+        sess.add(SourceFact(source_id=robust.id, fact_type="ABSTRACT",
+                            value="We study a trend strategy out-of-sample and across markets after costs.",
+                            extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1.0))
+        robust_id = robust.id
+    chosen = runner._select(cid, spec, done=set())
+    assert len(chosen) == 1 and chosen[0][0] == robust_id
+
+
+def test_selection_prefers_a_readable_source_over_a_paywall(setup):
+    """Measured failure: a live round selected four `access_restricted` papers and produced nothing at all.
+
+    A source with a stored open PDF (or arXiv/local/video) is read first inside its tier; the fetcher still decides
+    access for real, so this only costs a slot when the guess is wrong — whereas the reverse wastes every slot.
+    """
+    from qsd.taxonomy import AccessStatus
+
+    s, e, runner, _ai = setup
+    runner.limits.docs_per_round = 1
+    spec = parse_request("trend following ETF strategies")
+    cid = runner.create("trend following ETF strategies")
+    with session_scope(e) as sess:
+        paywalled = Source(campaign_id=cid, title="Trend following", tier=1,
+                           access_status=AccessStatus.NOT_FETCHED, url="https://publisher.test/paywalled")
+        open_copy = Source(campaign_id=cid, title="Trend following", tier=1,
+                           access_status=AccessStatus.NOT_FETCHED, url="https://publisher.test/landing")
+        sess.add_all([paywalled, open_copy])
+        sess.flush()
+        sess.add(SourceFact(source_id=open_copy.id, fact_type="PDF_URL", value="https://arxiv.org/pdf/1304.6846",
+                            extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1.0))
+        open_id = open_copy.id
+    assert runner._select(cid, spec, done=set())[0][0] == open_id
+
+
+def test_selection_does_not_let_evidence_outrank_a_better_tier(setup):
+    from qsd.taxonomy import AccessStatus
+
+    s, e, runner, _ai = setup
+    runner.limits.docs_per_round = 1
+    spec = parse_request("trend following ETF strategies")
+    cid = runner.create("trend following ETF strategies")
+    with session_scope(e) as sess:
+        tier1 = Source(campaign_id=cid, title="Trend following", tier=1,
+                       access_status=AccessStatus.NOT_FETCHED, url="https://example.test/t1")
+        tier4 = Source(campaign_id=cid, title="Trend following", tier=4,
+                       access_status=AccessStatus.NOT_FETCHED, url="https://example.test/t4")
+        sess.add_all([tier1, tier4])
+        sess.flush()
+        sess.add(SourceFact(source_id=tier4.id, fact_type="ABSTRACT",
+                            value="out-of-sample replication across markets after costs, walk-forward, robust",
+                            extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1.0))
+        tier1_id = tier1.id
+    assert runner._select(cid, spec, done=set())[0][0] == tier1_id
 
 
 def test_campaign_end_to_end(setup):

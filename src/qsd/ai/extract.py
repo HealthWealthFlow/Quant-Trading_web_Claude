@@ -16,7 +16,7 @@ from ..handlers import HandlerResult
 from ..security import INJECTION_FLAG, wrap_untrusted
 from ..taxonomy import UNKNOWN, ExtractionMethod, IdeaSourceRole, IdeaStatus, RegimeBasis, RegimeSuitability
 from . import prompts
-from .gateway import AIGateway
+from .gateway import AIGateway, AIOutputTruncated
 from .grounding import GroundingReport, ground_strategy
 from .schemas import CLAIM_FIELDS, Evidenced, ExtractedStrategy, StageAResult, StageBResult
 from .sections import select_relevant
@@ -34,6 +34,7 @@ class ExtractionReport:
     flags: list[str] = field(default_factory=list)
     cost_usd: float = 0.0
     skipped_reason: str | None = None
+    retried_short: bool = False  # stage B first answer was truncated; retried as one compact strategy
 
 
 def _loc(location: str | None) -> dict:
@@ -167,19 +168,35 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
         report.skipped_reason = "TRIAGE_NOT_PROMISING"
         return report
 
-    # Stage B: strong extraction on relevant sections only (spec §21, §86 B)
+    # Stage B: strong extraction on relevant sections only (spec §21, §86 B). A multi-strategy answer can run out
+    # of output tokens mid-JSON; then the partial answer is discarded (never cached) and the model is asked once
+    # more for a single compact strategy, which fits well inside the budget.
     sel = select_relevant(result, ai.stage_b_max_chars)
-    extraction, info = gw.run_json(task="stage_b_extract", prompt_version=prompts.STAGE_B_VERSION,
-                                   provider=ai.default_provider, model=ai.strong_model, system=prompts.SYSTEM,
-                                   user=prompts.stage_b_user(title, wrap_untrusted(sel.text, ref)),
-                                   schema=StageBResult, max_tokens=ai.stage_b_max_tokens, campaign_id=campaign_id,
-                                   source_id=source_id)
+    wrapped = wrap_untrusted(sel.text, ref)
     report.deep_read = True
-    report.cost_usd += info.cost_usd
     red_flags += [f"TRIAGE_RED_FLAG:{f}"[:80] for f in triage.red_flags]
+    extraction: StageBResult | None = None
+    for compact in (False, True):
+        try:
+            extraction, info = gw.run_json(
+                task="stage_b_extract", prompt_version=prompts.STAGE_B_VERSION, provider=ai.default_provider,
+                model=ai.strong_model, system=prompts.SYSTEM,
+                user=prompts.stage_b_user(title, wrapped, one_strategy_compact=compact), schema=StageBResult,
+                max_tokens=ai.stage_b_max_tokens, campaign_id=campaign_id, source_id=source_id)
+        except AIOutputTruncated:
+            if compact:
+                raise
+            report.retried_short = True
+            continue
+        report.cost_usd += info.cost_usd
+        if extraction.strategies:  # an all-empty answer would mean every value failed to parse; try once more
+            break
+    if report.retried_short:
+        report.flags.append("STAGE_B_RETRIED_SHORT")
+    strategies = extraction.strategies if extraction is not None else []
     grounding_text = sel.text + ("\n" + abstract if abstract else "")
     with session_scope(engine) as s:
-        for st in extraction.strategies:
+        for st in strategies:
             rep = ground_strategy(st, grounding_text)
             report.flags.extend(rep.flags)
             report.idea_ids.append(_store_strategy(s, source_id, campaign_id, st, rep, red_flags, ai.strong_model,

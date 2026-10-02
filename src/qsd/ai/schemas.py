@@ -22,6 +22,10 @@ RULE_FIELDS = (
     "instrument", "universe", "timeframe", "data_frequency", "indicators", "signal", "lookback", "entry_rule",
     "exit_rule", "stop_rule", "take_profit_rule", "position_sizing", "rebalance", "order_type", "trading_session",
     "holding_period", "transaction_cost_assumption", "liquidity_requirement", "portfolio_rules", "risk_rules",
+    # Not every strategy is a bar-rule: a portfolio-weight or model-driven strategy states its decision as an update
+    # equation or model form. Without these, such a source extracts as all-UNKNOWN and is rejected for lacking a rule
+    # it never had (D38).
+    "strategy_kind", "algorithm_rule",
 )
 CLAIM_FIELDS = ("claimed_sharpe", "claimed_cagr", "claimed_max_dd", "claimed_win_rate", "claimed_pf")
 

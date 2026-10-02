@@ -158,6 +158,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     from .ai import AIGateway, ProviderError, UnpricedModelError, default_providers, extract_ideas, idea_summary
     from .db.models import Source
     from .discovery import BudgetExhausted
+    from .fetch.enrich import enrich_source
     from .fetch.pipeline import apply_result
 
     s = load_settings()
@@ -172,6 +173,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             sess.add(src)
             sess.flush()
         apply_result(src, result)
+        enrich_source(sess, src, result, local_path=path)
         source_id = src.id
     gw = AIGateway(engine, s, default_providers(), budget=CampaignBudget(s.budgets))
     try:
@@ -449,6 +451,34 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_harvest(args: argparse.Namespace) -> int:
+    from .campaign import CampaignLimits, run_harvest
+
+    _safe_console()
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    limits = CampaignLimits(max_queries=args.max_queries, docs_per_round=args.docs, deepen_top_ideas=args.deepen)
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache",
+                       max_requests_per_host=s.budgets.max_sources_per_domain) as fetcher:
+        runner = _campaign_runner(s, engine, fetcher, limits)
+        try:
+            report = run_harvest(
+                runner, request=args.request, campaign_id=args.resume, target=args.target,
+                max_rounds=args.max_rounds, docs_per_round=args.docs, docs_total=args.docs_total,
+                max_queries=args.max_queries, deepen=args.deepen, sleep_seconds=args.sleep,
+                max_sleep_seconds=0 if args.ignore_budget_day else args.max_sleep,
+                stall_rounds=args.stall_rounds, empty_round_limit=args.empty_rounds,
+                search_budget_per_round=args.search_budget,
+                on_event=lambda _phase, message: print("  " + message, flush=True))
+        except KeyboardInterrupt:
+            if args.resume is None:
+                print("Interrupted. Resume with: qsd harvest --resume <ID>", file=sys.stderr)
+            return 130
+    print(json.dumps(report.as_dict(), indent=2, default=str))
+    return 0
+
+
 def _cmd_sources(args: argparse.Namespace) -> int:
     """Read the sources listed in sources.txt (videos, channels, links, files, folders) instead of searching."""
     from .campaign import CampaignLimits
@@ -625,6 +655,29 @@ def build_parser() -> argparse.ArgumentParser:
     ca.add_argument("--deepen", type=int, default=5, help="top ideas to search replication/contradictions for")
     ca.add_argument("--db", help="database path or SQLAlchemy URL")
     ca.set_defaults(func=_cmd_campaign)
+    ha = sub.add_parser("harvest", help='keep researching until N ideas clear the quality gate, e.g. '
+                                        'qsd harvest "Find intraday breakout strategies" --target 10')
+    ha.add_argument("request", nargs="?", help="what to research, in plain English")
+    ha.add_argument("--resume", type=int, help="continue campaign ID")
+    ha.add_argument("--target", type=int, default=5, help="stop when this many distinct PROMISING ideas exist")
+    ha.add_argument("--max-rounds", type=int, default=5, help="hard limit on rounds (each round reads --docs papers)")
+    ha.add_argument("--docs", type=int, default=10, help="documents to fetch + extract per round")
+    ha.add_argument("--docs-total", type=int, help="stop after this many documents in total, across rounds")
+    ha.add_argument("--max-queries", type=int, default=8)
+    ha.add_argument("--deepen", type=int, default=5, help="top ideas to search replication/contradictions for")
+    ha.add_argument("--sleep", type=int, default=0, help="seconds to pause between rounds")
+    ha.add_argument("--max-sleep", type=int, default=6 * 3600,
+                    help="never sleep longer than this when waiting for the daily budget to reset")
+    ha.add_argument("--stall-rounds", type=int, default=3,
+                    help="stop after this many rounds in a row that add no promising idea")
+    ha.add_argument("--empty-rounds", type=int, default=2,
+                    help="stop after this many rounds in a row that find no new source and read nothing")
+    ha.add_argument("--search-budget", type=int, default=120,
+                    help="search requests allowed per round (a lifetime cap would block every round after the first)")
+    ha.add_argument("--ignore-budget-day", action="store_true",
+                    help="stop instead of waiting when the daily AI budget is reached")
+    ha.add_argument("--db", help="database path or SQLAlchemy URL")
+    ha.set_defaults(func=_cmd_harvest)
     return p
 
 

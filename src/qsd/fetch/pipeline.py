@@ -11,6 +11,7 @@ from ..db.models import ErrorRecord, FetchLog, Source
 from ..handlers import HandlerResult, parse_bytes
 from ..taxonomy import AccessStatus, ErrorState
 from .client import FetchResponse, PoliteFetcher
+from .enrich import enrich_source
 
 _STOP_STATUSES = {AccessStatus.ROBOTS_DISALLOWED, AccessStatus.ACCESS_RESTRICTED,
                   AccessStatus.MANUAL_ACCESS_REQUIRED, AccessStatus.PRIVATE_ACCESS_REQUIRED}
@@ -52,6 +53,7 @@ def fetch_and_store(url: str, fetcher: PoliteFetcher, engine: Engine, campaign_i
             result = parse_bytes(resp.content, name=resp.final_url, content_type=resp.content_type,
                                  base_url=resp.final_url)
             apply_result(source, result)
+            enrich_source(s, source, result)
             if result.access_status is not AccessStatus.OK and resp.access_status is AccessStatus.OK:
                 source.access_status = result.access_status
             if result.access_status is AccessStatus.ERROR:

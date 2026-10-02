@@ -31,8 +31,8 @@ FAMILY_PHRASES = {
 }
 MODES = {r"\bacademic\b|papers? only": "ACADEMIC_ONLY", r"\bdeep\b|thorough": "DEEP_RESEARCH",
          r"\bquick\b": "QUICK_DISCOVERY", r"\brecent\b|latest|new": "RECENT_ONLY"}
-_FILLER = re.compile(r"\b(find|search|look for|discover|me|some|good|reliable|best|strategies|strategy|ideas?|for|"
-                     r"the|a|an|of|in|on|with|that|work|works)\b", re.I)
+_FILLER = re.compile(r"(?<![\w-])(find|search|look for|discover|me|some|good|reliable|best|strategies|strategy|"
+                     r"ideas?|for|the|a|an|of|in|on|with|that|work|works)(?![\w-])", re.I)
 
 
 @dataclass
