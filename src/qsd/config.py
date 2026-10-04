@@ -107,9 +107,9 @@ class Exploration(BaseModel):
 
 class QualityGate(BaseModel):
     high_priority: int = 85
-    # 60, not the original 70 (D37): several components cap below 1.0 by design, so even a perfect idea scores 88.2
-    # and the effective bar was ~79% of what is achievable. Must stay in step with config/default.yaml.
-    promising: int = 60
+    # 70 (D48, restored after D37's 60 once robustness was measured on the whole document). Must stay in step with
+    # config/default.yaml.
+    promising: int = 70
     research_further: int = 55
 
 

@@ -63,11 +63,12 @@ exploration:                # Share of research effort (must sum to 1.0)
 
 quality_gate:
   high_priority: 85
-  # 60, not 70 (D37). Several components cap below 1.0 by design (edge_vs_cost 0.6, data_availability 0.7,
-  # exit_executability 0.7, liquidity 0.8), so even a perfect idea scores 88.2 - the effective bar at 70 was ~79% of
-  # what is achievable. Measured: nothing passed at 70; the nine best-specified ideas surface at 60 so the deepening
-  # stage can work on them. Ideas still reach the backtest queue only via the handoff rule below.
-  promising: 60
+  # 70 again (D48, measured 2026-10-04 after the evidence fixes D41-D46). D37 had lowered it to 60 when robustness
+  # read 0 on nearly every idea because evidence was only searched in the abstract. Measured on 31 live ideas: no
+  # idea scores between 63.7 and 70.8; every idea in the 61-64 cluster has no robustness evidence, while the ideas at
+  # 70+ have reported out-of-sample evidence or near-complete rules. Ideas between 55 and 70 stay RESEARCHING and
+  # are still deepened (replication / criticism search), so they can earn their way up.
+  promising: 70
   research_further: 55
 
 discovery:
