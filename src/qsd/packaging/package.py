@@ -281,3 +281,18 @@ def export_schema(path: Path) -> Path:
 
 def suitable_regimes(pkg: ResearchPackage) -> list[str]:
     return [r["regime"] for r in pkg.market_regimes if r["suitability"] == RegimeSuitability.SUITED.value]
+
+
+def handoff_report(engine: Engine, settings: Settings, statuses: list[IdeaStatus] | None = None) -> list[dict]:
+    """Why each idea is (not) allowed into the backtest queue — the measurement behind "nothing reached it"."""
+    statuses = statuses or [IdeaStatus.PROMISING, IdeaStatus.READY_FOR_FORMALIZATION, IdeaStatus.RESEARCHING]
+    with session_scope(engine) as s:
+        ids = list(s.scalars(select(Idea.id).where(Idea.status.in_(statuses)).order_by(Idea.id)))
+    out = []
+    for i in ids:
+        pkg = build_package(engine, settings, i)
+        out.append({"idea_id": i, "name": pkg.strategy_name, "status": pkg.status,
+                    "normalized": pkg.scores.get("idea_quality_normalized"), "coverage": pkg.scores.get("coverage"),
+                    "completeness": pkg.scores.get("formalization_completeness"), "maturity": pkg.maturity,
+                    "eligible": pkg.handoff["eligible"], "reasons": pkg.handoff["blocking_reasons"]})
+    return out

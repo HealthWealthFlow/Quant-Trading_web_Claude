@@ -1,5 +1,17 @@
 # Changelog
 
+## Measurement fixes after the 2026-10-04 review (D41–D44)
+- **Harvest now uses the backtest queue.** It counted PROMISING ideas as its target but never called the handoff, so
+  the queue stayed empty by construction. Eligible ideas are now submitted after every round (`submitted` in the
+  harvest report). `qsd queue --why` lists each PROMISING / RESEARCHING idea's blocking reasons with a tally.
+- **Robustness is measured on the whole document.** Evidence sentences (own work only, reference list excluded) are
+  stored as `EVIDENCE:*` facts at extraction and by `qsd reground`, used by scoring, and shown in
+  `score_details.evidence_sentences`. Previously only abstract + summary + AI quotes were searched.
+- **Two-column PDFs:** a pdfminer layout reading of every page (`alt_blocks`, PDF handler v3) is used to verify quotes;
+  reproduced on a synthetic merged-token page; `qsd factcheck` uses the same text as grounding.
+- **Grounding loophole closed:** an approximately matched quote must contain the value's numbers.
+- All measurable for $0 on the live database with `qsd reground` (cached AI answers, cached documents).
+
 ## Algorithm-shaped strategies are no longer discarded (schema v5, D38) (2026-10-02)
 The gap that silently threw away a whole class of academic quant research.
 - **The problem.** PAMR (*Passive Aggressive Mean Reversion*) states its decision as a portfolio-weight update

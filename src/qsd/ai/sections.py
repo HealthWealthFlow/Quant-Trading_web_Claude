@@ -50,3 +50,14 @@ def select_relevant(result: HandlerResult, max_chars: int, keep_first: int = 2) 
         parts.append(f"[{b.location.label()}] {text}")
     text = "\n\n".join(parts)[:max_chars]
     return Selection(text, len(chosen), len(blocks), len(chosen) < len(blocks))
+
+
+_PAGE_MARK = re.compile(r"\[p\.(\d+)")
+
+
+def grounding_text(result: HandlerResult, selection: Selection, abstract: str | None = None) -> str:
+    """What quotes are verified against: the text the AI saw, the abstract, and any other faithful rendering of the
+    same pages (`HandlerResult.alt_blocks`, e.g. a column-by-column reading of a two-column PDF page)."""
+    pages = {int(n) for n in _PAGE_MARK.findall(selection.text)}
+    alt = [b.text for b in result.alt_blocks if b.location.page in pages]
+    return "\n".join([selection.text, abstract or "", *alt])

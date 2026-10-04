@@ -95,6 +95,9 @@ class HandlerResult:
     references: list[str] = field(default_factory=list)
     limitations: list[str] = field(default_factory=list)
     injection_phrases: list[str] = field(default_factory=list)
+    # Other faithful renderings of the same pages (e.g. PDF layout analysis that reads two-column pages column by
+    # column). Used only to verify quotes during grounding; never sent to the AI and never shown as the document.
+    alt_blocks: list[TextBlock] = field(default_factory=list)
 
     @property
     def text(self) -> str:
