@@ -18,3 +18,10 @@
 - Relation checks read abstracts only; a CONTRADICTS link is a lead for review, not a verdict.
 - Academic sources rarely describe retail technical-analysis setups (e.g. support breakout + volume + pullback);
   many such papers are paywalled. YouTube (with a key), sources.txt and Phase-2 web search cover them better.
+- **Two-column PDFs are only partly handled (2026-10-04).** A gutter probe reads cleanly two-column pages column by
+  column, but pages where pdfplumber has already merged words across the gutter (measured: tokens 242–504pt wide, far
+  wider than a column) are deliberately left in pdfplumber's own order. On such a paper the text interleaves, so no
+  contiguous quote exists and grounding correctly strips every value — measured: 13 of 19 values on one MM-ARC paper
+  were removed as QUOTE_NOT_FOUND although the paper states them all. A safer fix is to stop the cross-gutter merge at
+  word-extraction time (tighter x/y tolerance or line-level extraction) and then score candidate reading orders by how
+  many source sentences survive intact, instead of probing for a gutter.
