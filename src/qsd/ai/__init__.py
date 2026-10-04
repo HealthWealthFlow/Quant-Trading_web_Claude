@@ -1,6 +1,15 @@
 """AI layer: provider adapters, cached and budgeted gateway, two-stage grounded extraction (spec §83–§89)."""
 
-from .extract import ExtractionReport, RegroundReport, extract_ideas, idea_summary, reground_source
+from .extract import (
+    ExtractionReport,
+    ReextractReport,
+    RegroundReport,
+    extract_ideas,
+    idea_summary,
+    reextract_source,
+    reground_source,
+    stored_extraction,
+)
 from .gateway import AIGateway, AIOutputError, AIOutputTruncated, CallInfo, UnpricedModelError
 from .grounding import GroundingReport, ground_strategy, normalize, quote_in_source
 from .providers import (
@@ -15,7 +24,8 @@ from .providers import (
 from .schemas import ExtractedStrategy, StageAResult, StageBResult
 
 __all__ = [
-    "ExtractionReport", "RegroundReport", "extract_ideas", "reground_source", "GroundingReport", "idea_summary",
+    "ExtractionReport", "ReextractReport", "RegroundReport", "extract_ideas", "reextract_source", "reground_source",
+    "stored_extraction", "GroundingReport", "idea_summary",
     "AIGateway", "AIOutputError", "AIOutputTruncated", "CallInfo",
     "UnpricedModelError", "ground_strategy", "normalize", "quote_in_source", "AnthropicProvider",
     "OpenAICompatibleProvider", "Provider", "ProviderError", "ProviderRefusal", "ProviderResponse",

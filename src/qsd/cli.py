@@ -278,6 +278,82 @@ def _cmd_reground(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_reextract(args: argparse.Namespace) -> int:
+    """Ask the AI again with the current prompt for chosen sources (costs money; dry run unless --yes)."""
+    from sqlalchemy import func, select
+
+    from .ai import AIGateway, ProviderError, UnpricedModelError, default_providers, prompts, reextract_source
+    from .ai.extract import stored_extraction
+    from .db.models import AICall, Idea
+    from .discovery import BudgetExhausted
+    from .scoring import score_idea
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    with session_scope(engine) as sess:
+        ids = set(args.source)
+        for idea_id in args.idea:
+            idea = sess.get(Idea, idea_id)
+            if idea is None or idea.primary_source_id is None:
+                print(f"idea {idea_id}: not found or has no source", file=sys.stderr)
+                return 2
+            ids.add(idea.primary_source_id)
+        plan = []
+        for sid in sorted(ids):
+            stored = stored_extraction(engine, sid)
+            spent = sess.scalar(select(func.coalesce(func.sum(AICall.cost_usd), 0.0)).where(
+                AICall.source_id == sid, AICall.task == "stage_b_extract", AICall.cache_hit.is_(False)))
+            ideas = sess.scalars(select(Idea.id).where(Idea.primary_source_id == sid).order_by(Idea.id)).all()
+            plan.append((sid, stored[2] if stored else None, spent, list(ideas)))
+    if not plan:
+        print("nothing to do: pass --source ID or --idea ID", file=sys.stderr)
+        return 2
+    current = prompts.STAGE_B_VERSION
+    todo = []
+    for sid, version, spent, ideas in plan:
+        note = f"source {sid}: ideas {ideas}  extracted with prompt {version or '-'}, current {current}"
+        if version == current:
+            print(note + "  -> already current, skipped (the same question returns the same saved answer)")
+            continue
+        print(note + f"  -> will ask again (last time cost ${spent:.4f})")
+        todo.append(sid)
+    if not todo:
+        return 0
+    if not args.yes:
+        print(f"\nDry run. Add --yes to spend roughly ${sum(p[2] for p in plan if p[0] in todo):.2f} "
+              "(budget limits still apply).")
+        return 0
+    gw = AIGateway(engine, s, default_providers(), budget=CampaignBudget(s.budgets))
+    touched: list[int] = []
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
+        for sid in todo:
+            result, problem = _load_document(engine, s, sid, fetcher)
+            if result is None:
+                print(f"source {sid}: skipped ({problem})")
+                continue
+            try:
+                rep = reextract_source(gw, engine, s, sid, result)
+            except (UnpricedModelError, ProviderError, BudgetExhausted) as e:
+                print(f"Stopped: {e}", file=sys.stderr)
+                break
+            print(f"source {sid}: cost ${rep.cost_usd:.4f}" + (f", skipped ({rep.skipped_reason})"
+                                                                if rep.skipped_reason else ""))
+            for c in rep.changes:
+                b, a = c["before"], c["after"]
+                print(f"  idea {c['idea_id']}  {b['status']} -> {a['status']}  "
+                      f"removed values {b['removed']} -> {a['removed']}")
+            for i in rep.new_idea_ids:
+                print(f"  idea {i}  new strategy in the new answer")
+            for i in rep.unmatched_idea_ids:
+                print(f"  idea {i}  not named in the new answer; left unchanged")
+            touched += rep.idea_ids + rep.new_idea_ids
+    if touched:
+        print("\nRe-scored:")
+        _print_scores([score_idea(engine, s, i) for i in touched])
+    return 0
+
+
 def _cmd_factcheck(args: argparse.Namespace) -> int:
     """Explain why quotes were rejected: closest passage in the source text and the share of words found there."""
     import unicodedata
@@ -624,6 +700,13 @@ def build_parser() -> argparse.ArgumentParser:
     sco.add_argument("--idea", type=int, help="score one idea (default: all)")
     sco.add_argument("--db", help="database path or SQLAlchemy URL")
     sco.set_defaults(func=_cmd_score)
+    rx = sub.add_parser("reextract", help="ask the AI again with the current prompt for chosen sources, updating "
+                                          "their ideas in place (costs money; dry run unless --yes)")
+    rx.add_argument("--source", type=int, action="append", default=[], help="source id (repeatable)")
+    rx.add_argument("--idea", type=int, action="append", default=[], help="idea id; its source is re-extracted")
+    rx.add_argument("--yes", action="store_true", help="really call the AI")
+    rx.add_argument("--db", help="database path or SQLAlchemy URL")
+    rx.set_defaults(func=_cmd_reextract)
     fc = sub.add_parser("factcheck", help="explain why an idea's values were removed: closest source passage per "
                                           "quote (no AI cost)")
     fc.add_argument("idea", type=int)

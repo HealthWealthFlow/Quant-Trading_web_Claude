@@ -139,6 +139,20 @@ def _store_strategy(s, source_id: int, campaign_id: int | None, st: ExtractedStr
 
 def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: int, result: HandlerResult,
                   campaign_id: int | None = None, force_deep: bool = False) -> ExtractionReport:
+    report, strategies, red_flags, grounding_text = _extract(gw, engine, settings, source_id, result, campaign_id,
+                                                             force_deep)
+    with session_scope(engine) as s:
+        for st in strategies:
+            rep = ground_strategy(st, grounding_text)
+            report.flags.extend(rep.flags)
+            report.idea_ids.append(_store_strategy(s, source_id, campaign_id, st, rep, red_flags,
+                                                   settings.ai.strong_model, prompts.STAGE_B_VERSION))
+    return report
+
+
+def _extract(gw: AIGateway, engine: Engine, settings: Settings, source_id: int, result: HandlerResult,
+             campaign_id: int | None, force_deep: bool) -> tuple[ExtractionReport, list, list[str], str]:
+    """Triage + stage B + the text quotes are checked against. Stores nothing but the triage and evidence facts."""
     report = ExtractionReport(source_id)
     ai = settings.ai
     with session_scope(engine) as s:
@@ -156,7 +170,7 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
     triage_text = (f"[abstract] {abstract}\n\n" if abstract else "") + head.text
     if not triage_text.strip():
         report.skipped_reason = "NO_TEXT"
-        return report
+        return report, [], red_flags, ""
     wrapped = wrap_untrusted(triage_text[:ai.stage_a_max_chars], ref)
     triage, info = gw.run_json(task="stage_a_triage", prompt_version=prompts.STAGE_A_VERSION,
                                provider=ai.default_provider, model=ai.cheap_model, system=prompts.SYSTEM,
@@ -170,7 +184,7 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
                          confidence=triage.confidence))
     if not force_deep and not (triage.is_strategy_research and triage.worth_deep_read):
         report.skipped_reason = "TRIAGE_NOT_PROMISING"
-        return report
+        return report, [], red_flags, ""
 
     # Stage B: strong extraction on relevant sections only (spec §21, §86 B). A multi-strategy answer can run out
     # of output tokens mid-JSON; then the partial answer is discarded (never cached) and the model is asked once
@@ -197,14 +211,7 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
     report.deep_read = True
     red_flags += [f"TRIAGE_RED_FLAG:{f}"[:80] for f in triage.red_flags]
     strategies = extraction.strategies if extraction is not None else []
-    grounding_text = build_grounding_text(result, sel, abstract)
-    with session_scope(engine) as s:
-        for st in strategies:
-            rep = ground_strategy(st, grounding_text)
-            report.flags.extend(rep.flags)
-            report.idea_ids.append(_store_strategy(s, source_id, campaign_id, st, rep, red_flags, ai.strong_model,
-                                                   prompts.STAGE_B_VERSION))
-    return report
+    return report, strategies, red_flags, build_grounding_text(result, sel, abstract)
 
 
 @dataclass
@@ -260,29 +267,80 @@ def reground_source(engine: Engine, settings: Settings, source_id: int, result: 
             for idea in [i for i in ideas if i.strategy_name == st.strategy_name[:500]]:
                 if idea.status is IdeaStatus.SUBMITTED_TO_BACKTEST:
                     continue
-                strategy = st.model_copy(deep=True)
-                rep = ground_strategy(strategy, grounding_text)
-                before = {"status": idea.status.value, "removed": _removed_count(idea)}
-                for row in idea.regimes:
-                    row.source_fact_id = None
-                s.flush()
-                s.execute(delete(SourceFact).where(SourceFact.idea_id == idea.id,
-                                                   SourceFact.source_id == source_id,
-                                                   SourceFact.extraction_method == ExtractionMethod.AI_STRONG))
-                other = list(idea.red_flags or [])
-                _apply_strategy(s, idea, source_id, strategy, rep, other, model, version)
-                old = idea.status
-                if _needs_review(rep, other):
-                    idea.status = IdeaStatus.NEEDS_REVIEW
-                elif old is IdeaStatus.NEEDS_REVIEW:
-                    idea.status = IdeaStatus.DISCOVERED  # scoring moves it on
-                if idea.status is not old:
-                    s.add(IdeaStatusHistory(idea_id=idea.id, from_status=old, to_status=idea.status,
-                                            reason=f"re-grounded: {rep.problems}/{rep.attempted} value(s) failed"))
-                report.idea_ids.append(idea.id)
-                report.changes.append({"idea_id": idea.id, "before": before,
-                                       "after": {"status": idea.status.value, "removed": len(rep.removed)},
-                                       "realigned": idea.grounding["realigned"]})
+                _update_in_place(s, idea, source_id, st.model_copy(deep=True), grounding_text,
+                                 list(idea.red_flags or []), model, version, "re-grounded", report)
+    return report
+
+
+def _update_in_place(s, idea: Idea, source_id: int, strategy: ExtractedStrategy, grounding_text: str,
+                     other: list[str], model: str, version: str, why: str, report: RegroundReport) -> None:
+    """Ground `strategy` and write it over `idea`, keeping the idea's id, history and campaign."""
+    rep = ground_strategy(strategy, grounding_text)
+    before = {"status": idea.status.value, "removed": _removed_count(idea)}
+    for row in idea.regimes:
+        row.source_fact_id = None
+    s.flush()
+    s.execute(delete(SourceFact).where(SourceFact.idea_id == idea.id, SourceFact.source_id == source_id,
+                                       SourceFact.extraction_method == ExtractionMethod.AI_STRONG))
+    _apply_strategy(s, idea, source_id, strategy, rep, other, model, version)
+    old = idea.status
+    if _needs_review(rep, other):
+        idea.status = IdeaStatus.NEEDS_REVIEW
+    elif old is IdeaStatus.NEEDS_REVIEW:
+        idea.status = IdeaStatus.DISCOVERED  # scoring moves it on
+    if idea.status is not old:
+        s.add(IdeaStatusHistory(idea_id=idea.id, from_status=old, to_status=idea.status,
+                                reason=f"{why}: {rep.problems}/{rep.attempted} value(s) failed"))
+    report.idea_ids.append(idea.id)
+    report.changes.append({"idea_id": idea.id, "before": before,
+                           "after": {"status": idea.status.value, "removed": len(rep.removed)},
+                           "realigned": idea.grounding["realigned"]})
+
+
+@dataclass
+class ReextractReport(RegroundReport):
+    new_idea_ids: list[int] = field(default_factory=list)   # strategies the new answer has and the old did not
+    unmatched_idea_ids: list[int] = field(default_factory=list)  # old ideas the new answer no longer names
+    cost_usd: float = 0.0
+
+
+def reextract_source(gw: AIGateway, engine: Engine, settings: Settings, source_id: int,
+                     result: HandlerResult) -> ReextractReport:
+    """Ask the model again with the current prompt (this costs money) and update the source's ideas in place.
+
+    A strategy is matched to an existing idea by name, so ids, status history and campaign survive. New strategy
+    names become new ideas; old ideas the new answer does not name are left untouched and reported. Ideas already
+    submitted to the backtest queue are never changed.
+    """
+    report = ReextractReport(source_id)
+    with session_scope(engine) as s:
+        ideas = s.scalars(select(Idea).where(Idea.primary_source_id == source_id).order_by(Idea.id)).all()
+        campaign_id = next((i.campaign_id for i in ideas if i.campaign_id), None)
+    ext, strategies, red_flags, grounding_text = _extract(gw, engine, settings, source_id, result, campaign_id,
+                                                          force_deep=True)
+    report.cost_usd, report.skipped_reason = ext.cost_usd, ext.skipped_reason
+    if not strategies:
+        report.skipped_reason = report.skipped_reason or "NO_STRATEGIES_IN_NEW_ANSWER"
+        return report  # never wipe existing ideas because a new answer came back empty
+    model, version = settings.ai.strong_model, prompts.STAGE_B_VERSION
+    with session_scope(engine) as s:
+        ideas = s.scalars(select(Idea).where(Idea.primary_source_id == source_id).order_by(Idea.id)).all()
+        matched: set[int] = set()
+        for st in strategies:
+            same = [i for i in ideas if i.strategy_name == st.strategy_name[:500] and i.id not in matched]
+            if not same:
+                rep = ground_strategy(st, grounding_text)
+                report.new_idea_ids.append(_store_strategy(s, source_id, campaign_id, st, rep, red_flags, model,
+                                                           version))
+                continue
+            for idea in same:
+                matched.add(idea.id)
+                if idea.status is not IdeaStatus.SUBMITTED_TO_BACKTEST:
+                    _update_in_place(s, idea, source_id, st.model_copy(deep=True), grounding_text,
+                                     sorted(set(idea.red_flags or []) | set(red_flags)), model, version,
+                                     f"re-extracted ({version})", report)
+        report.unmatched_idea_ids = [i.id for i in ideas if i.id not in matched
+                                     and i.status is not IdeaStatus.SUBMITTED_TO_BACKTEST]
     return report
 
 
