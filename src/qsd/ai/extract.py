@@ -13,12 +13,14 @@ from ..config import Settings
 from ..db import new_idea, session_scope
 from ..db.models import AICache, AICall, Idea, IdeaSource, IdeaStatusHistory, Source, SourceFact
 from ..handlers import HandlerResult
+from ..scoring.evidence import store_evidence
 from ..security import INJECTION_FLAG, wrap_untrusted
 from ..taxonomy import UNKNOWN, ExtractionMethod, IdeaSourceRole, IdeaStatus, RegimeBasis, RegimeSuitability
 from . import prompts
 from .gateway import AIGateway, AIOutputError
 from .grounding import GroundingReport, ground_strategy
 from .schemas import CLAIM_FIELDS, Evidenced, ExtractedStrategy, StageAResult, StageBResult
+from .sections import grounding_text as build_grounding_text
 from .sections import select_relevant
 
 _PAGE = re.compile(r"p\.(\d+)")
@@ -146,6 +148,8 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
                                                             SourceFact.fact_type == "ABSTRACT")).first()
     ref = f"source:{source_id}"
     red_flags = [INJECTION_FLAG] if result.injection_phrases else []
+    with session_scope(engine) as s:
+        store_evidence(s, source_id, result)  # deterministic, whole document; scoring reads it
 
     # Stage A: cheap triage on abstract + opening/relevant text (spec §86 A)
     head = select_relevant(result, ai.stage_a_max_chars)
@@ -193,7 +197,7 @@ def extract_ideas(gw: AIGateway, engine: Engine, settings: Settings, source_id: 
     report.deep_read = True
     red_flags += [f"TRIAGE_RED_FLAG:{f}"[:80] for f in triage.red_flags]
     strategies = extraction.strategies if extraction is not None else []
-    grounding_text = sel.text + ("\n" + abstract if abstract else "")
+    grounding_text = build_grounding_text(result, sel, abstract)
     with session_scope(engine) as s:
         for st in strategies:
             rep = ground_strategy(st, grounding_text)
@@ -249,8 +253,9 @@ def reground_source(engine: Engine, settings: Settings, source_id: int, result: 
         if not ideas:
             report.skipped_reason = "NO_IDEAS_FOR_SOURCE"
             return report
+        store_evidence(s, source_id, result)
         sel = select_relevant(result, settings.ai.stage_b_max_chars)
-        grounding_text = sel.text + ("\n" + abstract if abstract else "")
+        grounding_text = build_grounding_text(result, sel, abstract)
         for st in extraction.strategies:
             for idea in [i for i in ideas if i.strategy_name == st.strategy_name[:500]]:
                 if idea.status is IdeaStatus.SUBMITTED_TO_BACKTEST:

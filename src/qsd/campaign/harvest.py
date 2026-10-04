@@ -44,6 +44,7 @@ class HarvestReport:
     spent_usd: float = 0.0
     follow_up_queries: list[str] = field(default_factory=list)  # directions the loop derived from its own findings
     search_stops: int = 0  # rounds that ended only because their search allowance ran out (recoverable)
+    submitted: int = 0  # ideas handed to the backtest queue by this harvest (the system's actual output)
 
     @property
     def target_met(self) -> bool:
@@ -53,6 +54,7 @@ class HarvestReport:
         return {"campaign_id": self.campaign_id, "target": self.target, "reached": self.reached,
                 "target_met": self.target_met, "rounds": self.rounds, "stop_reason": self.stop_reason,
                 "spent_usd": round(self.spent_usd, 6), "search_stops": self.search_stops,
+                "submitted": self.submitted,
                 "follow_up_queries": self.follow_up_queries, "round_reports": self.round_reports}
 
 
@@ -70,6 +72,21 @@ def promising_ideas(engine, campaign_id: int) -> list[int]:
         seen.add(key)
         out.append(idea.id)
     return out
+
+
+def submit_eligible(engine, settings, campaign_id: int) -> list[int]:
+    """Hand every eligible PROMISING idea of this campaign to the backtest queue (the handoff rule decides).
+
+    Measured need: the harvest counted PROMISING ideas as its target but never submitted any, so after 11 campaigns
+    and 10 PROMISING ideas the queue was still empty. Ideas that fail the handoff rule stay PROMISING; `qsd queue
+    --why` lists what blocks them.
+    """
+    from ..packaging import submit_to_queue
+
+    with session_scope(engine) as s:
+        ids = list(s.scalars(select(Idea.id).where(Idea.campaign_id == campaign_id, Idea.status.in_(
+            [IdeaStatus.PROMISING, IdeaStatus.READY_FOR_FORMALIZATION]))))
+    return [i for i in ids if submit_to_queue(engine, settings, i)[0]]
 
 
 def _budget_expired(reason: str) -> bool:
@@ -170,9 +187,14 @@ def run_harvest(runner: CampaignRunner, request: str | None = None, campaign_id:
         report.spent_usd += float(rnd.budget_spent.get("ai_cost_usd", 0.0) or 0.0)
         docs_read = int(getattr(rnd, "documents_processed", 0) or 0)
         docs_used += docs_read
+        submitted = submit_eligible(runner.engine, runner.settings, cid)
+        report.submitted += len(submitted)
+        if submitted:
+            note(f"Sent {len(submitted)} idea(s) to the backtest queue: {', '.join(map(str, submitted))}")
         now_promising = promising_ideas(runner.engine, cid)
         report.round_reports.append({"round": report.rounds, "promising": len(now_promising),
-                                     "ideas": len(rnd.ideas), "stop_reason": rnd.stop_reason})
+                                     "ideas": len(rnd.ideas), "submitted": len(submitted),
+                                     "stop_reason": rnd.stop_reason})
         gained = len(now_promising) - len(reached)
         reached = now_promising
         report.reached = len(reached)

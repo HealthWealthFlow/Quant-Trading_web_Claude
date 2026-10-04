@@ -127,6 +127,34 @@ def page_text(page) -> str:
     return best
 
 
+MAX_LAYOUT_PAGES = 80
+
+
+def layout_blocks(data: bytes, primary: list[TextBlock]) -> list[TextBlock]:
+    """A second reading of each page by pdfminer's layout analysis (text boxes in reading order).
+
+    pdfplumber reads a page line by line across its full width, so on two-column papers it can interleave the columns
+    or even merge characters from both columns into one token — measured on a real paper: tokens 242–504pt wide on a
+    612pt page, 13 of 19 grounded values lost. pdfminer groups characters into lines and boxes before ordering them, so
+    columns come out whole. Both readings are faithful renderings of the same page; grounding accepts a quote found in
+    either, which recovers real quotes without accepting anything the document does not contain.
+    """
+    from pdfminer.high_level import extract_pages
+    from pdfminer.layout import LAParams, LTTextContainer
+
+    seen = {b.location.page: " ".join(b.text.split()) for b in primary}
+    out: list[TextBlock] = []
+    try:
+        for number, layout in enumerate(extract_pages(io.BytesIO(data), laparams=LAParams(),
+                                                      maxpages=MAX_LAYOUT_PAGES), 1):
+            text = "\n".join(el.get_text().strip() for el in layout if isinstance(el, LTTextContainer)).strip()
+            if text and " ".join(text.split()) != seen.get(number):
+                out.append(TextBlock(text, Location(page=number)))
+    except Exception:  # noqa: BLE001 — the second reading is optional; the primary text stands on its own
+        return out
+    return out
+
+
 def _is_password_error(e: BaseException) -> bool:
     """pdfplumber wraps pdfminer errors; look through args and the exception chain."""
     seen: set[int] = set()
@@ -144,7 +172,7 @@ def _is_password_error(e: BaseException) -> bool:
 
 class PDFHandler(SourceHandler):
     name = "PDFHandler"
-    version = "2"  # 2: re-read pages with glued words using tighter word-gap tolerances
+    version = "3"  # 2: re-read glued-word pages; 3: + pdfminer layout rendering for quote verification
     formats = ("pdf",)
 
     def extract(self, data: bytes, fmt: str, base_url: str | None = None) -> HandlerResult:
@@ -152,6 +180,7 @@ class PDFHandler(SourceHandler):
         try:
             with pdfplumber.open(io.BytesIO(data)) as pdf:
                 self._read(pdf, result)
+            result.alt_blocks = layout_blocks(data, result.blocks)
         except Exception as e:  # noqa: BLE001 — malformed PDFs must not crash the pipeline
             msg = str(e) or type(e).__name__
             if _is_password_error(e) or "password" in msg.lower() or "encrypt" in msg.lower():

@@ -285,7 +285,7 @@ def _cmd_factcheck(args: argparse.Namespace) -> int:
     from sqlalchemy import select
 
     from .ai.grounding import SourceIndex, normalize
-    from .ai.sections import select_relevant
+    from .ai.sections import grounding_text, select_relevant
     from .db.models import Idea, SourceFact
 
     s = load_settings()
@@ -308,8 +308,7 @@ def _cmd_factcheck(args: argparse.Namespace) -> int:
         print(f"source {sid}: {problem}", file=sys.stderr)
         return 2
     sel = select_relevant(result, s.ai.stage_b_max_chars)
-    text = sel.text + ("\n" + abstract if abstract else "")
-    idx = SourceIndex(text)
+    idx = SourceIndex(grounding_text(result, sel, abstract))
     print(f"Idea {args.idea}, source {sid}: text the AI saw = {len(sel.text)} characters "
           f"({'truncated' if sel.truncated else 'complete'}), {len(idx.words)} words.\n")
     for r in removed:
@@ -358,6 +357,24 @@ def _cmd_queue(args: argparse.Namespace) -> int:
     s = load_settings()
     engine = make_engine(_db_path(args))
     init_db(engine)
+    if args.why:
+        import re as _re
+        from collections import Counter
+
+        from .packaging import handoff_report
+
+        rows = handoff_report(engine, s)
+        tally = Counter(_re.sub(r"-?\d+(\.\d+)?|None", "#", r) for row in rows for r in row["reasons"])
+        for row in rows:
+            q = "-" if row["normalized"] is None else f"{row['normalized']:.1f}"
+            print(f"idea {row['idea_id']:>5}  {row['status']:<14} normalized {q:>5}  coverage {row['coverage']}  "
+                  f"complete {row['completeness']}  {row['maturity']:<14} "
+                  + ("ELIGIBLE" if row["eligible"] else "blocked: " + "; ".join(row["reasons"])))
+        print("\nBlocking reasons (ideas affected):")
+        for reason, n in tally.most_common():
+            print(f"  {n:>3}  {reason}")
+        print(f"\n{sum(r['eligible'] for r in rows)} of {len(rows)} idea(s) eligible for the backtest queue.")
+        return 0
     if args.list:
         pending = s.resolve_path(s.handoff.queue_dir) / "pending"
         for p in sorted(pending.glob("*.json")) if pending.exists() else []:
@@ -621,6 +638,8 @@ def build_parser() -> argparse.ArgumentParser:
     qq.add_argument("--submit", type=int, action="append", default=[], help="idea id (repeatable)")
     qq.add_argument("--submit-ready", action="store_true", help="submit all PROMISING / READY ideas that pass")
     qq.add_argument("--list", action="store_true", help="list pending packages")
+    qq.add_argument("--why", action="store_true", help="show why each PROMISING / RESEARCHING idea is or is not "
+                                                       "eligible, with a tally of blocking reasons")
     qq.add_argument("--db", help="database path or SQLAlchemy URL")
     qq.set_defaults(func=_cmd_queue)
     wb = sub.add_parser("web", help="start the read-only dashboard (default http://127.0.0.1:8877/)")

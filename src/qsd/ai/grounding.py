@@ -216,6 +216,12 @@ class _Grounder:
         if not numbers_supported(f.value, self.idx.norm):
             self.remove("UNSUPPORTED_NUMBER_REMOVED", label, f, "NUMBER_NOT_IN_SOURCE")
             return Evidenced(value=UNKNOWN)
+        if normalize(found) != normalize(f.evidence_quote or "") and not _numbers(f.value) <= _numbers(found):
+            # An approximately matched quote must carry the value's numbers itself. Otherwise "uses a six month
+            # lookback" could align with the source's "uses a twelve month lookback" (one word differs) and the value
+            # "6-month" pass because a "6" appears somewhere else on the page.
+            self.remove("UNSUPPORTED_NUMBER_REMOVED", label, f, "NUMBER_NOT_IN_MATCHED_QUOTE")
+            return Evidenced(value=UNKNOWN)
         self._note_realigned(found, f.evidence_quote, label)
         f.evidence_quote = found[:MAX_QUOTE]
         return f

@@ -13,7 +13,7 @@ from ..db import session_scope
 from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Rejection, Source, SourceFact
 from ..security import INJECTION_FLAG
 from ..taxonomy import UNKNOWN, IdeaSourceRole, IdeaStatus, RegimeBasis, RegimeSuitability
-from . import dedupe, rules, scores
+from . import dedupe, evidence, rules, scores
 
 FROZEN_STATUSES = {IdeaStatus.SUBMITTED_TO_BACKTEST}
 
@@ -74,7 +74,10 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
         # root evidence, source & evidence quality, replication
         root = dedupe.root_evidence_id(ids, src.id) if src else f"idea:{idea.id}"
         idea.root_evidence_id = root
-        signals = scores.transparency_signals(corpus)
+        # Evidence read from the whole document at extraction time (scoring/evidence.py), plus whatever the abstract and
+        # quotes show. Without the former, robustness reported in a paper's body was invisible to scoring.
+        doc_signals, evidence_sentences = evidence.stored_signals(src_facts)
+        signals = sorted(set(scores.transparency_signals(corpus)) | set(doc_signals))
         if src:
             src.root_evidence_id = root
             sq, sq_details = scores.source_quality(
@@ -141,6 +144,7 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
                              "components": {k: {"value": c.value, "basis": c.basis} for k, c in iq.components.items()},
                              "unscored": iq.unscored},
             "source_quality": sq_details, "evidence_quality": eq_details,
+            "evidence_sentences": evidence_sentences,
             "completeness": {"score": completeness, "band": rules.completeness_band(completeness),
                              "missing": missing},
             "complexity": complexity_parts, "dedupe": {"class": dclass, "of": dup_of}, "band": band,
