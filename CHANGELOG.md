@@ -1,5 +1,10 @@
 # Changelog
 
+## Quality gate back to 70 (D48) (2026-10-04)
+- Re-measured on all 31 live ideas after the evidence fixes: the ideas between 60 and 64 all lack robustness
+  evidence, and nothing scores between 63.7 and 70.8. Ideas from 55 to 70 stay RESEARCHING and are still deepened.
+  Ideas already in the backtest queue are unaffected. Run `qsd score` to apply.
+
 ## Re-extraction of chosen sources (D47) (2026-10-04)
 - `qsd reextract --idea N` (or `--source N`) asks the AI again with the current prompt and updates the ideas in place.
   Prints a dry run with the previous cost first; add `--yes` to spend. Skips sources already on the current prompt.

@@ -70,3 +70,39 @@ So the binding constraints are exactly two components, both worth 6:
 Lowering the 70 threshold or the component weights so that existing ideas pass. The measurement above shows the ideas
 fall short for an honest reason — no robustness evidence, complex rules — and the fix is better sourcing and better
 selection, not a friendlier gate.
+
+---
+
+## 2026-10-04: re-measured after the evidence fixes (D41–D46) → gate back to 70 (D48)
+
+**Evidence:** all 31 ideas with stored component scores (`gate.txt` from the live database), after two-column grounding,
+whole-document evidence with the precision fixes, and data availability for every bar-data asset class.
+
+| normalized | ideas | what they have in common |
+|---|---|---|
+| 78.1 | 20 | out-of-sample test reported (`expected_robustness` 1.0) |
+| 71.6–71.8 | 27, 28 | 28: out-of-sample 2021–2023, costs, code (robustness 0.67); 27: completeness 95, rationale 0.95 |
+| 70.8 | 10 | NEEDS_REVIEW (grounding) |
+| *(none)* | | **nothing between 63.7 and 70.8** |
+| 61.6–63.7 | 1, 5–9, 21, 22 | `expected_robustness` 0 on every one; 5–9 and 21/22 `parameter_simplicity` ≤ 0.08 |
+| < 60 | the rest | |
+
+Pass counts by gate (coverage ≥ 0.6, not rejected): **70 → 4** (20, 27, 28, 10) · **65 → 4** · **60 → 12**.
+
+Sensitivity to the two known scoring quirks:
+
+| change | largest effect | changes a result at 70? |
+|---|---|---|
+| "costs discussed" (0.6) treated as unassessed | ≤ 1.6 points (idea 28: 71.6 → 73.2) | no |
+| `parameter_simplicity` dropped | 5–9: 63.1 → 68.3; 21/22: 62.5 → 69.0 | no |
+| both | 21/22 → 70.8, 5–9 → 69.7 | 21/22 borderline |
+
+Ideas 5–9 really are complex (Bollinger, RSI, Fibonacci, EMA, ATR; about 9 thresholds), so their penalty is deserved.
+The quirks are worth fixing on their own merits, but they do not justify a lower gate.
+
+**Why 60 is no longer needed:** D37 lowered the gate because robustness read 0 almost everywhere (evidence was only
+looked for in the abstract) and so that deepening would reach more ideas. The first is fixed. The second was mistaken:
+the deepen stage already follows up RESEARCHING ideas as well as PROMISING ones (`campaign/runner.py`).
+
+**Caveat:** 31 ideas is a small sample, and only 4 are above 70. Re-measure after the next research campaigns; lower the
+gate again only with a new measurement.
