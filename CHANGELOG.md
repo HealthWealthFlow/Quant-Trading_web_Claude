@@ -1,5 +1,10 @@
 # Changelog
 
+## Re-extraction of chosen sources (D47) (2026-10-04)
+- `qsd reextract --idea N` (or `--source N`) asks the AI again with the current prompt and updates the ideas in place.
+  Prints a dry run with the previous cost first; add `--yes` to spend. Skips sources already on the current prompt.
+- Known issues updated with the measured two-column result and the completeness note for allocation ideas.
+
 ## Data availability for every bar-data asset class (D46) (2026-10-04)
 - Commodities, volatility and multi-asset ideas now get a data-availability rating (0.7), fixed income 0.6. They
   were "not assessed", which alone blocked complete ideas from the backtest queue. Re-run `qsd score` to apply.

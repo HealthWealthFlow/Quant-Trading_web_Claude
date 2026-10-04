@@ -1,3 +1,4 @@
+import copy
 import json
 from datetime import UTC, datetime
 
@@ -565,3 +566,60 @@ def test_cut_off_extraction_is_retried_once_for_a_single_strategy(engine):
     rep = extract_ideas(AIGateway(engine, settings(), {"fake": fake}), engine, settings(), sid, result)
     assert len(rep.idea_ids) == 1 and "STAGE_B_RETRIED_SHORT" in rep.flags
     assert "at most 3" in fake.calls[1]["user"] and "at most 1" in fake.calls[2]["user"]
+
+
+def test_reextract_updates_ideas_in_place_and_adds_new_strategies(engine, monkeypatch):
+    from qsd.ai import prompts, reextract_source
+
+    result = parse_bytes(make_pdf(PAGES), name="tsmom.pdf")
+    sid = _source(engine)
+    newer = copy.deepcopy(GOOD_B)
+    newer["strategies"][0]["rules"]["stop_rule"] = {"value": "UNKNOWN"}  # the new answer drops the bad value
+    newer["strategies"][0]["rules"]["holding_period"] = {
+        "value": "one month", "evidence_quote": "Positions are rebalanced monthly", "location": "p.2"}
+    newer["strategies"].append({**copy.deepcopy(GOOD_B["strategies"][0]), "strategy_name": "Crisis alpha"})
+    fake = FakeProvider([STAGE_A, GOOD_B, newer])
+    gw = AIGateway(engine, settings(), {"fake": fake})
+    iid = extract_ideas(gw, engine, settings(), sid, result).idea_ids[0]
+
+    monkeypatch.setattr(prompts, "STAGE_B_VERSION", "b-next")  # a newer prompt: the saved answer no longer applies
+    rep = reextract_source(gw, engine, settings(), sid, result)
+    assert len(fake.calls) == 3  # triage came from the cache; stage B was asked again once
+    assert rep.idea_ids == [iid] and len(rep.new_idea_ids) == 1 and rep.unmatched_idea_ids == []
+    with session_scope(engine) as s:
+        idea = s.get(Idea, iid)
+        assert idea.holding_period == "one month" and idea.stop_rule == UNKNOWN
+        assert idea.grounding["prompt_version"] == "b-next" and idea.grounding["removed"] == []
+        assert s.get(Idea, rep.new_idea_ids[0]).strategy_name == "Crisis alpha"
+
+
+def test_reextract_keeps_existing_ideas_when_the_new_answer_is_empty(engine, monkeypatch):
+    from qsd.ai import prompts, reextract_source
+
+    result = parse_bytes(make_pdf(PAGES), name="tsmom.pdf")
+    sid = _source(engine)
+    fake = FakeProvider([STAGE_A, GOOD_B, {"strategies": []}])
+    gw = AIGateway(engine, settings(), {"fake": fake})
+    iid = extract_ideas(gw, engine, settings(), sid, result).idea_ids[0]
+    monkeypatch.setattr(prompts, "STAGE_B_VERSION", "b-next")
+    rep = reextract_source(gw, engine, settings(), sid, result)
+    assert rep.skipped_reason == "NO_STRATEGIES_IN_NEW_ANSWER" and rep.idea_ids == []
+    with session_scope(engine) as s:
+        assert s.get(Idea, iid).rebalance == "monthly"
+
+
+def test_reextract_cli_is_a_dry_run_without_yes(tmp_path, capsys, monkeypatch):
+    from qsd.cli import main
+
+    db = str(tmp_path / "x.sqlite")
+    e = make_engine(db)
+    init_db(e)
+    result = parse_bytes(make_pdf(PAGES), name="tsmom.pdf")
+    sid = _source(e)
+    extract_ideas(AIGateway(e, settings(), {"fake": FakeProvider([STAGE_A, GOOD_B])}), e, settings(), sid, result)
+    assert main(["reextract", "--idea", "1", "--db", db]) == 0
+    assert "already current, skipped" in capsys.readouterr().out
+    monkeypatch.setattr("qsd.ai.prompts.STAGE_B_VERSION", "b-next")
+    assert main(["reextract", "--idea", "1", "--db", db]) == 0
+    out = capsys.readouterr().out
+    assert "will ask again" in out and "Dry run. Add --yes" in out

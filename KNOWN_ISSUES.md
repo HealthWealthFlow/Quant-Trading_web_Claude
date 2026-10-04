@@ -18,8 +18,11 @@
 - Relation checks read abstracts only; a CONTRADICTS link is a lead for review, not a verdict.
 - Academic sources rarely describe retail technical-analysis setups (e.g. support breakout + volume + pullback);
   many such papers are paywalled. YouTube (with a key), sources.txt and Phase-2 web search cover them better.
-- **Two-column PDFs (2026-10-04, fix pending real measurement).** pdfplumber can merge characters from both columns
-  into one token (measured on MM-ARC: 242–504pt tokens; 13 of 19 values stripped as QUOTE_NOT_FOUND). Since D41 every
-  PDF page also gets a pdfminer layout reading (text boxes, columns whole) that grounding may verify quotes against;
-  the AI still sees the primary text. Reproduced and fixed on a synthetic merged-token page; **not yet measured on the
-  real paper** — success criterion: `qsd reground --source 887` drops its removed-value count well below 13.
+- **Two-column PDFs (2026-10-04, measured fixed).** pdfplumber can merge characters from both columns into one token.
+  Since D41 every PDF page also gets a pdfminer layout reading that grounding may verify quotes against. Measured on
+  the live database: MM-ARC (source 887) 13 → 2 removed values, source 767 12 → 3, source 727 11 → 7.
+- **Completeness credits a stated study horizon as an exit.** `holding_period` counts toward "exit", so "10-year
+  investment period" (idea 1, a passive allocation) earns the exit points. For that idea the score is still about
+  right (its real exit is the stated annual rebalance), so it is left as is; a wording rule would be fragile.
+- **Evidence sentences:** 24 of 30 correct at the first hand check (D45 fixed the 6 misses). A signal *definition*
+  that says "100% out-of-sample" still counts as an out-of-sample test.
