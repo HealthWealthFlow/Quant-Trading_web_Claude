@@ -1,5 +1,9 @@
 # Changelog
 
+## Data availability for every bar-data asset class (D46) (2026-10-04)
+- Commodities, volatility and multi-asset ideas now get a data-availability rating (0.7), fixed income 0.6. They
+  were "not assessed", which alone blocked complete ideas from the backtest queue. Re-run `qsd score` to apply.
+
 ## Evidence precision after the live hand check (D45) (2026-10-04)
 - 6 of 30 live evidence sentences were wrong (negations, future work, a company name containing "International").
   Such sentences no longer count; "out- of-sample" broken across a line now does. Re-run `qsd reground` to apply.

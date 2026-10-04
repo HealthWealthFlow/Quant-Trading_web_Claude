@@ -64,6 +64,10 @@ def replication_score(independent_supporting_roots: int) -> float:
 
 _LIQUID = re.compile(r"s&p ?500|large[- ]cap|nasdaq[- ]?100|\bspy\b|\bqqq\b|\bes\b futures|major (currency )?pairs|"
                      r"eur/?usd|usd/?jpy|\bbtc\b|bitcoin|\beth\b|ethereum|index futures|g10", re.I)
+# Daily bars are freely available: commodities and volatility trade as futures / ETFs / indices (e.g. VIX), and
+# a multi-asset portfolio is built from such series. Fixed income scores lower (D46): index and yield series are
+# free, individual bond prices are not.
+_BAR_DATA = {"STOCK", "ETF", "FOREX", "CRYPTO", "FUTURES", "COMMODITIES", "VOLATILITY", "MULTI_ASSET"}
 _ILLIQUID = re.compile(r"micro[- ]?cap|small[- ]cap|penny|illiquid|otc\b|low[- ]volume", re.I)
 _SHORT_VOL = re.compile(r"sell(ing)? (puts?|calls?|options|straddles?|strangles?|volatility)|short (vol|volatility|"
                         r"puts?|straddle|strangle)|write (puts?|calls?)|variance risk premium", re.I)
@@ -114,13 +118,15 @@ def idea_quality(idea, weights: dict[str, float], completeness: float, complexit
     c["rule_quantifiability"] = Component(completeness / 100, "FORMALIZATION_COMPLETENESS")
     c["point_in_time"] = Component(0.0, "LOOKAHEAD_DETECTED") if hard_fail else \
         Component(None, "NOT_ASSESSABLE_FROM_TEXT")
+    intraday = horizon in (TimeHorizon.HFT, TimeHorizon.SECONDS)
     if not assets:
         c["data_availability"] = Component(None, "ASSET_CLASS_UNKNOWN")
-    elif assets <= {"STOCK", "ETF", "FOREX", "CRYPTO", "FUTURES"} and horizon not in (TimeHorizon.HFT,
-                                                                                      TimeHorizon.SECONDS):
+    elif assets <= _BAR_DATA and not intraday:
         c["data_availability"] = Component(0.7, "ASSET_CLASS_HEURISTIC:bar_data_widely_available")
     elif "OPTIONS" in assets:
         c["data_availability"] = Component(0.4, "ASSET_CLASS_HEURISTIC:options_chain_history_needed")
+    elif assets <= _BAR_DATA | {"FIXED_INCOME"} and not intraday:
+        c["data_availability"] = Component(0.6, "ASSET_CLASS_HEURISTIC:bond_index_and_yield_series_available")
     else:
         c["data_availability"] = Component(None, "NOT_ASSESSED")
     if _ILLIQUID.search(text):
