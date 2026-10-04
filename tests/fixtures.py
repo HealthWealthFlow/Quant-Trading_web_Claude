@@ -6,6 +6,45 @@ import io
 import zipfile
 
 
+def make_two_column_pdf(left_lines: list[str], right_lines: list[str], title: str = "Two Column Study") -> bytes:
+    """A page laid out in two columns, so line-by-line extraction interleaves them.
+
+    Real academic papers are two-column, and pdfplumber's default reader alternates lines from both columns, which
+    destroys every contiguous sentence. This fixture reproduces that layout with absolute text positioning.
+    """
+    objs: list[bytes] = []
+    objs.append(b"<< /Type /Catalog /Pages 2 0 R >>")
+    objs.append(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+    objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+                b"/Resources << /Font << /F1 5 0 R >> >> >>")
+    parts: list[str] = ["BT /F1 10 Tf"]
+    for i, line in enumerate(left_lines):
+        safe = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        parts.append(f"1 0 0 1 50 {740 - i * 14} Tm ({safe}) Tj")
+    for i, line in enumerate(right_lines):
+        safe = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        parts.append(f"1 0 0 1 320 {740 - i * 14} Tm ({safe}) Tj")
+    parts.append("ET")
+    stream = " ".join(parts).encode()
+    objs.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
+    objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    objs.append(f"<< /Title ({title}) /Author (Jane Researcher) /CreationDate (D:20190101000000) >>".encode())
+
+    out = io.BytesIO()
+    out.write(b"%PDF-1.4\n")
+    offsets = []
+    for i, body in enumerate(objs, 1):
+        offsets.append(out.tell())
+        out.write(f"{i} 0 obj\n".encode() + body + b"\nendobj\n")
+    xref = out.tell()
+    out.write(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode())
+    for off in offsets:
+        out.write(f"{off:010d} 00000 n \n".encode())
+    out.write(f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R /Info {len(objs)} 0 R >>\n"
+              f"startxref\n{xref}\n%%EOF\n".encode())
+    return out.getvalue()
+
+
 def make_pdf(pages: list[str], title: str = "Momentum Study") -> bytes:
     """Minimal valid PDF with one line of Helvetica text per page (hand-built, no writer library)."""
     objs: list[bytes] = []

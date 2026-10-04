@@ -39,6 +39,75 @@ def glued_share(text: str) -> float:
     return sum(len(m) for m in _GLUED.findall(text)) / letters if letters else 0.0
 
 
+def _column_split(page) -> float | None:
+    """x of the vertical gutter between two columns, or None for a single-column page.
+
+    pdfplumber reads a two-column page as alternating lines ("...we evaluate 62 instruments | adaptation creates an
+    opposing risk. a fixed strategy pool is | across five asset classes..."), which shuffles the sentences. The facts
+    survive, but no contiguous quote exists any more, so grounding correctly rejects every value — measured: 13 of 19
+    values on one MM-ARC paper were stripped as QUOTE_NOT_FOUND although the paper states all of them.
+    """
+    try:
+        words = page.extract_words()
+        width = float(page.width)
+    except Exception:  # noqa: BLE001 — layout probing must never break parsing
+        return None
+    if len(words) < 40:
+        return None  # too little text to judge (title page, figure)
+    # A word wider than this cannot be split without breaking it (a long URL, a wide equation). Splitting through such
+    # a token garbles it and destroys anything else on the line, so the page is left in pdfplumber's own order.
+    widest = max((float(w["x1"]) - float(w["x0"]) for w in words), default=0.0)
+    if widest > width * 0.28:
+        return None
+    # vertical projection: how many words cover each x-interval
+    edges = sorted({round(e, 1) for w in words for e in (float(w["x0"]), float(w["x1"])) if 0 <= e <= width})
+    edges = [0.0, *edges, width]
+    total_words = len(words)
+    span: list[float] = []  # index i spans edges[i]..edges[i+1]
+    for a, b in zip(edges, edges[1:], strict=False):
+        span.append(0.0 if b - a < 2 else float(sum(1 for w in words
+                                                     if float(w["x0"]) < b and float(w["x1"]) > a)))
+    # scan for a gutter in the middle 40% of the page: nearly empty, with text on both sides.
+    # The tolerance has to allow a few cross-gutter words (a long URL or a wide equation), because otherwise a single
+    # one vetoes detection on an otherwise clean two-column page — measured: a real paper had its gutter at x=312 on
+    # every page, but detection fired on only 3 of 6 pages, leaving the rest interleaved.
+    lo, hi = width * 0.28, width * 0.72
+    best_gap, best_x = 0.0, None
+    for i, (a, b) in enumerate(zip(edges, edges[1:], strict=False)):
+        if not (lo <= a <= hi) or b - a < 10:
+            continue
+        if span[i] > max(3.0, total_words * 0.02):
+            continue
+        left = sum(1 for w in words if float(w["x1"]) <= a)
+        right = sum(1 for w in words if float(w["x0"]) >= b)
+        if left >= total_words * 0.25 and right >= total_words * 0.25 and b - a > best_gap:
+            best_gap, best_x = b - a, (a + b) / 2
+    return best_x
+
+
+def _text_by_columns(page, gutter: float) -> str:
+    """Read the left column fully, then the right — so sentences stay contiguous."""
+    words = page.extract_words()
+    left = [w for w in words if float(w["x1"]) <= gutter]
+    right = [w for w in words if float(w["x0"]) >= gutter]
+    out: list[str] = []
+    for column in (left, right):
+        # pdfplumber's `top` is measured from the top of the page, so ascending order is reading order
+        column.sort(key=lambda w: (float(w["top"]), float(w["x0"])))
+        line: list[str] = []
+        last_top: float | None = None
+        for w in column:
+            top = float(w["top"])
+            if last_top is not None and abs(top - last_top) > 3:
+                out.append(" ".join(line))
+                line = []
+            line.append(str(w["text"]))
+            last_top = top
+        if line:
+            out.append(" ".join(line))
+    return "\n".join(out).strip()
+
+
 def page_text(page) -> str:
     text = (page.extract_text() or "").strip()
     best, best_share = text, glued_share(text)
@@ -49,6 +118,12 @@ def page_text(page) -> str:
         share = glued_share(alt)
         if alt and share < best_share:
             best, best_share = alt, share
+    # two-column pages: read each column in order instead of alternate lines from both
+    gutter = _column_split(page)
+    if gutter is not None:
+        columned = _text_by_columns(page, gutter)
+        if len(columned) >= len(best) * 0.6 and glued_share(columned) <= max(0.02, best_share):
+            best = columned
     return best
 
 
