@@ -121,6 +121,13 @@ def _apply_strategy(s, idea: Idea, source_id: int, st: ExtractedStrategy, rep: G
             row.source_fact_id = f.id
 
 
+def _carried_flags(idea: Idea, result: HandlerResult) -> list[str]:
+    """The idea's stored flags, with the injection flag recomputed from the document as it is read now (the
+    detector has changed before; a stale flag would otherwise keep an idea in NEEDS_REVIEW for good)."""
+    kept = [f for f in idea.red_flags or [] if f != INJECTION_FLAG]
+    return kept + ([INJECTION_FLAG] if result.injection_phrases else [])
+
+
 def _needs_review(rep: GroundingReport, red_flags: list[str]) -> bool:
     return rep.needs_review or INJECTION_FLAG in red_flags
 
@@ -268,7 +275,7 @@ def reground_source(engine: Engine, settings: Settings, source_id: int, result: 
                 if idea.status is IdeaStatus.SUBMITTED_TO_BACKTEST:
                     continue
                 _update_in_place(s, idea, source_id, st.model_copy(deep=True), grounding_text,
-                                 list(idea.red_flags or []), model, version, "re-grounded", report)
+                                 _carried_flags(idea, result), model, version, "re-grounded", report)
     return report
 
 
@@ -337,7 +344,7 @@ def reextract_source(gw: AIGateway, engine: Engine, settings: Settings, source_i
                 matched.add(idea.id)
                 if idea.status is not IdeaStatus.SUBMITTED_TO_BACKTEST:
                     _update_in_place(s, idea, source_id, st.model_copy(deep=True), grounding_text,
-                                     sorted(set(idea.red_flags or []) | set(red_flags)), model, version,
+                                     sorted(set(_carried_flags(idea, result)) | set(red_flags)), model, version,
                                      f"re-extracted ({version})", report)
         report.unmatched_idea_ids = [i.id for i in ideas if i.id not in matched
                                      and i.status is not IdeaStatus.SUBMITTED_TO_BACKTEST]

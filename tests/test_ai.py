@@ -623,3 +623,20 @@ def test_reextract_cli_is_a_dry_run_without_yes(tmp_path, capsys, monkeypatch):
     assert main(["reextract", "--idea", "1", "--db", db]) == 0
     out = capsys.readouterr().out
     assert "will ask again" in out and "Dry run. Add --yes" in out
+
+
+def test_reground_recomputes_a_stale_injection_flag(engine):
+    from qsd.security import INJECTION_FLAG
+
+    result = parse_bytes(make_pdf(PAGES), name="tsmom.pdf")
+    sid = _source(engine)
+    iid = extract_ideas(AIGateway(engine, settings(), {"fake": FakeProvider([STAGE_A, GOOD_B])}), engine, settings(),
+                        sid, result).idea_ids[0]
+    with session_scope(engine) as s:  # stored by an older, over-eager detector
+        idea = s.get(Idea, iid)
+        idea.red_flags = [INJECTION_FLAG, "PROMISSORY_LANGUAGE"]
+        idea.status = IdeaStatus.NEEDS_REVIEW
+    reground_source(engine, settings(), sid, result)  # the document itself has no injection text
+    with session_scope(engine) as s:
+        idea = s.get(Idea, iid)
+        assert idea.red_flags == ["PROMISSORY_LANGUAGE"] and idea.status is IdeaStatus.DISCOVERED

@@ -23,7 +23,10 @@ _INJECTION_PATTERNS = [
     r"<\s*/?\s*(system|assistant)\s*>",
     r"\bBEGIN (SYSTEM|ADMIN) PROMPT\b",
     r"(disable|turn off|bypass) (the )?(safety|guardrails|rate limits?|restrictions)",
-    r"(place|submit|execute) (a |the )?(live )?(trade|order)s?\b",
+    # Only an instruction addressed to the reader. A bare "place a trade" is ordinary trading talk ("so I place a
+    # trade here") and flagged every transcript of a trading video (measured on idea 10, 2026-10-04).
+    r"\b(you (must|should|need to|will|have to)|please|now|immediately) (place|submit|execute) (a |the |some )?(live )?"
+    r"(trade|order)s?\b",
 ]
 _INJECTION_RE = re.compile("|".join(f"(?:{p})" for p in _INJECTION_PATTERNS), re.IGNORECASE)
 
