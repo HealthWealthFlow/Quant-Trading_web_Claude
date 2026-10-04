@@ -179,3 +179,18 @@ def test_evidence_precision_on_hand_checked_live_sentences():
         doc = HandlerResult(handler="t", handler_version="1", format="pdf", sha256="x", size=1,
                             blocks=[TextBlock(sentence, Location(page=1))])
         assert set(find_evidence(doc)) == expected, sentence
+
+
+def test_data_availability_rates_every_bar_data_asset_class(tmp_path):
+    e = make_engine(tmp_path / "d.sqlite")
+    init_db(e)
+    cases = {("COMMODITIES",): 0.7, ("VOLATILITY",): 0.7, ("MULTI_ASSET",): 0.7, ("ETF", "FIXED_INCOME"): 0.6,
+             ("FIXED_INCOME",): 0.6, ("STOCK", "OPTIONS"): 0.4, ("STOCK",): 0.7, (): None}
+    with session_scope(e) as s:
+        for assets in cases:
+            s.add(new_idea(strategy_name="x", asset_classes=list(assets), signal="12-month return > 0"))
+    for i, (assets, expected) in enumerate(cases.items(), start=1):
+        score_idea(e, S, i)
+        with session_scope(e) as s:
+            got = s.get(Idea, i).score_details["idea_quality"]["components"]["data_availability"]["value"]
+        assert got == expected, assets
