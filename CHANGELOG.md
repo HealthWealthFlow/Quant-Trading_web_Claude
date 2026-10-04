@@ -1,5 +1,9 @@
 # Changelog
 
+## Evidence precision after the live hand check (D45) (2026-10-04)
+- 6 of 30 live evidence sentences were wrong (negations, future work, a company name containing "International").
+  Such sentences no longer count; "out- of-sample" broken across a line now does. Re-run `qsd reground` to apply.
+
 ## Measurement fixes after the 2026-10-04 review (D41–D44)
 - **Harvest now uses the backtest queue.** It counted PROMISING ideas as its target but never called the handoff, so
   the queue stayed empty by construction. Eligible ideas are now submitted after every round (`submitted` in the

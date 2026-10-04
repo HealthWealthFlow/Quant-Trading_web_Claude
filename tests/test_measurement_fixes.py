@@ -146,3 +146,36 @@ def test_harvest_submits_eligible_ideas(tmp_path, monkeypatch):
     monkeypatch.setattr("qsd.packaging.submit_to_queue",
                         lambda engine, settings, i: (calls.append(i) or True, None, []))
     assert harvest.submit_eligible(e, S, 1) == [1] and calls == [1]  # only PROMISING ideas are offered
+
+
+# Hand-checked sentences from the live database (2026-10-04, `evidence.txt`): 24 of 30 were right, the misses were
+# negations, future work and a company name. Each line is (sentence, signals it must yield).
+LIVE = [
+    ("We then applied the bid-ask model developed by DiLellio and Stanley (2011) based on the three- month moving "
+     "average volume, producing a bid-ask spread cost of 0.10% and 0.08%.", {"costs_considered"}),
+    ("Consequently, the updated simulation results include the small and midcap results in both 10-year time periods "
+     "(1991–2000 and 2001–2010), but our Nasdaq funds could only support simulated results for 2001–2010.",
+     {"sample_period"}),
+    ("We select the best threshold for our out-of-sample test.", {"out_of_sample"}),
+    ("In particular, we examine the impacts of transaction costs and regime-switching timings on the VIX futures "
+     "trading strategies.", {"costs_considered"}),
+    ("Our approach integrates surface-informed decisions with multiple hedging instruments and explicitly accounts "
+     "for transaction costs.", {"costs_considered"}),
+    ("Tested on a historical out- of-sample set of straddles from 2020 to 2023, our method consistently outperforms "
+     "traditional delta-gamma hedging strategies.", {"out_of_sample", "sample_period"}),
+    # wrong before, must yield nothing now
+    ("Although many other stock index funds could be considered, such as international developed and emerging "
+     "markets, we chose these because of their wide familiarity to individual investors.", set()),
+    ("Future research might take this work forward by including more sentiment indicators, modelling transaction "
+     "costs, and doing multi-asset portfolio optimization.", set()),
+    ("Transaction cost: we assume no transaction cost or taxes exists in this portfolio selection model.", set()),
+    ("Similar to previous studies, we avoid incorporating transaction cost in the original formulations.", set()),
+    ("3.1 CCI vs HCP We construct a portfolio by holding $1 Crown Castle International Corp.", set()),
+]
+
+
+def test_evidence_precision_on_hand_checked_live_sentences():
+    for sentence, expected in LIVE:
+        doc = HandlerResult(handler="t", handler_version="1", format="pdf", sha256="x", size=1,
+                            blocks=[TextBlock(sentence, Location(page=1))])
+        assert set(find_evidence(doc)) == expected, sentence

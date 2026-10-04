@@ -25,17 +25,22 @@ MAX_PER_SIGNAL = 3
 MAX_SENTENCE = 400
 
 SIGNALS: dict[str, re.Pattern] = {
-    "out_of_sample": re.compile(r"out[- ]of[- ]sample|walk[- ]forward|hold[- ]?out (period|sample|set)|"
+    "out_of_sample": re.compile(r"out(-\s?| )of(-\s?| )sample|walk(-\s?| )forward|hold[- ]?out (period|sample|set)|"
                                 r"held[- ]out (period|sample|data|set)|test (period|sample|set)", re.I),
     "costs_considered": re.compile(r"transaction costs?|trading costs?|slippage|bid[- ]ask|commissions?", re.I),
     "code_available": re.compile(r"github\.com|source code|code is (publicly )?available|replication (code|package)",
                                  re.I),
     "sample_period": re.compile(r"\b(19|20)\d\d\s?(-|–|to|through|until)\s?(19|20)\d\d\b", re.I),
-    "cross_market": re.compile(r"\binternational\b|across (\w+ )?(countries|markets|asset classes|exchanges)|"
+    "cross_market": re.compile(r"\binternational ((stock|equity|bond) )?(markets|samples?|evidence|data)\b|"
+                               r"across (\w+ )?(countries|markets|asset classes|exchanges)|"
                                r"\b\d+ (countries|markets|asset classes|exchanges)\b", re.I),
 }
 # The source must be talking about its own analysis in the same sentence.
 _OWN_WORK = re.compile(r"\b(we|our|this (paper|study|article|work|note|analysis))\b", re.I)
+# ...and must not say it did *not* do it (measured 2026-10-04: "we assume no transaction cost", "we avoid
+# incorporating transaction cost", "future research might ... model transaction costs" were all counted).
+_NOT_DONE = re.compile(r"\b(no|not|never|avoid\w*|ignor\w*|neglect\w*|exclud\w*|future (research|work|studies)|"
+                       r"beyond the scope|left for)\b", re.I)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[])")
 _REFERENCES = re.compile(r"^\s*(references|bibliography|literature cited)\s*$", re.I | re.M)
 
@@ -54,7 +59,7 @@ def find_evidence(result: HandlerResult) -> dict[str, list[tuple[str, str]]]:
     found: dict[str, list[tuple[str, str]]] = {}
     for block in result.blocks:
         for sentence in _sentences(block.text):
-            if not _OWN_WORK.search(sentence):
+            if not _OWN_WORK.search(sentence) or _NOT_DONE.search(sentence):
                 continue
             for name, rx in SIGNALS.items():
                 hits = found.setdefault(name, [])
