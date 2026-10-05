@@ -30,6 +30,7 @@ from ..scoring import score_idea
 from ..security import wrap_untrusted
 from ..taxonomy import (
     UNKNOWN,
+    WORTH_BACKTESTING,
     AccessStatus,
     AssetClass,
     CampaignStatus,
@@ -569,8 +570,7 @@ class CampaignRunner:
         with session_scope(self.engine) as s:
             ideas = s.scalars(select(Idea).where(Idea.campaign_id == cid)).all()
             report.ideas = [i.id for i in ideas]
-            promising = [i for i in ideas if i.status in (IdeaStatus.PROMISING, IdeaStatus.READY_FOR_FORMALIZATION,
-                                                          IdeaStatus.SUBMITTED_TO_BACKTEST)]
+            promising = [i for i in ideas if i.status in WORTH_BACKTESTING]
             report.promising = [i.id for i in promising]
             families = {f for i in promising for f in (i.strategy_families or [])[:1]}
             if stop_reason is None:

@@ -77,10 +77,10 @@ IDEAS = """{% extends "base.html" %}{% import "macros.html" as m %}{% block titl
 placeholder="e.g. ETF"></label><button>Filter</button></form>
 <div class="scroll"><table><tr><th class="num">Quality</th><th>Strategy</th><th>Asset</th><th>Family</th><th>Source</th>
 <th class="num">Source Q</th><th class="num">Evidence Q</th><th>Rationale</th><th>Liquidity</th><th>Exit</th>
-<th class="num">Complete</th><th class="num">Novelty</th><th class="num">Priority</th><th>Market direction</th>
+<th class="num">Complete</th><th>Setup</th><th class="num">Novelty</th><th class="num">Priority</th><th>Market direction</th>
 <th>Status</th></tr>
 {% for i in ideas %}{% set iq = i.score_details.get('idea_quality', {}) %}
-{% set comps = iq.get('components', {}) %}{% set src = sources.get(i.primary_source_id) %}
+{% set comps = iq.get('components', {}) %}{% set src = sources.get(i.primary_source_id) %}{% set su = i|setup %}
 <tr><td class="num">{{ iq.get('normalized')|fmt(0) }}<br><span class="muted">{{ ((iq.get('coverage') or 0)*100)|round|int
 }}% assessed</span></td><td><a href="/ideas/{{ i.id }}">{{ i.strategy_name }}</a></td>
 <td>{{ i.asset_classes|join(', ') }}</td><td>{{ i.strategy_families|join(', ')|lower }}</td>
@@ -88,10 +88,10 @@ placeholder="e.g. ETF"></label><button>Filter</button></form>
 <td class="num">{{ i.evidence_quality|fmt(0) }}</td>
 <td>{{ 'stated' if i.economic_rationale != 'UNKNOWN' else 'unknown' }}</td>
 <td>{{ (comps.get('liquidity', {}).get('value'))|fmt(1) }}</td><td>{{ (comps.get('exit_executability', {}).get('value'))|fmt(1) }}</td>
-<td class="num">{{ i.formalization_completeness|fmt(0) }}<br><span class="muted">{{ maturity(i.formalization_completeness)|lower }}</span></td><td class="num">{{ i.novelty_score|fmt(0) }}</td>
+<td class="num">{{ i.formalization_completeness|fmt(0) }}<br><span class="muted">{{ maturity(i.formalization_completeness)|lower }}</span></td><td class="num">{{ su.readiness|fmt(0) }}<br><span class="muted">{{ su.label }}</span></td><td class="num">{{ i.novelty_score|fmt(0) }}</td>
 <td class="num">{{ i.research_priority_score|fmt(1) }}</td><td>{{ m.regimes(i) }}</td>
 <td>{{ m.status(i.status.value) }}</td></tr>
-{% else %}<tr><td colspan="15" class="muted">No ideas match these filters.</td></tr>{% endfor %}</table></div>
+{% else %}<tr><td colspan="16" class="muted">No ideas match these filters.</td></tr>{% endfor %}</table></div>
 {% endblock %}"""
 
 IDEA = """{% extends "base.html" %}{% import "macros.html" as m %}{% block title %}{{ idea.strategy_name }}{% endblock %}
@@ -103,6 +103,21 @@ horizon {{ idea.time_horizon.value|lower }}</p>
 <div class="grid2"><div>
 <div class="panel"><h2 style="margin-top:0">Summary</h2><p>{{ idea.summary }}</p>
 <p><b>Next research action:</b> {{ idea.next_research_action }}</p></div>
+{% set su = idea|setup %}
+<div class="panel"><h2 style="margin-top:0">Backtest setup</h2>
+<p>{% if su.verdict == 'complete' %}<span class="badge good"><span class="dot"></span>runnable as the source states it</span>
+{% elif su.verdict == 'runnable' %}<span class="badge good"><span class="dot"></span>runnable</span>
+{% elif su.verdict == 'blocked' %}<span class="badge serious flag"><span class="dot"></span>not runnable yet</span>
+{% else %}<span class="badge serious flag"><span class="dot"></span>skipped: source says too little</span>{% endif %}
+<span class="muted">{{ su.label }}</span></p>
+<p class="muted" title="how much of a runnable setup the source itself supplied">Readiness
+{{ su.readiness|fmt(0) }} · written down by the source: {{ su.from_source|join(', ') or 'nothing' }}</p>
+{% if su.blocking_missing %}<p class="muted">Must come from the source (never invented):
+{{ su.blocking_missing|join(', ') }}</p>{% endif %}
+{% if su.bridgeable_missing %}<p class="muted">Can be filled from convention, and recorded as such:
+{{ su.bridgeable_missing|join(', ') }}</p>{% endif %}
+{% if su.skip and su.skip.reason %}<p class="muted">Skip check: {{ su.skip.reason }} — {{ su.skip.detail }}</p>{% endif %}
+</div>
 <div class="panel"><h2 style="margin-top:0">Red flags</h2>
 {% set iq = pkg.scores %}
 {% for f in pkg.concerns.red_flags %}<span class="badge serious flag"><span class="dot"></span>! {{ f }}</span>{% endfor %}
