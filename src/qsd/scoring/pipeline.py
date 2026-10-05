@@ -177,6 +177,13 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
                 _set_status(s, idea, IdeaStatus.DUPLICATE, f"same fingerprint as idea {dup_of}")
             elif idea.status is IdeaStatus.NEEDS_REVIEW:
                 pass  # human/second-opinion review first (spec §87)
+            elif readiness["runnable"] and "entry" in readiness["from_source"] and not skip["skip"]:
+                # The source stated a testable decision rule and the rest can be completed, so this is ready
+                # to hand to the backtester even if its measured quality is modest or its coverage thin. The
+                # quality band still records how promising it looks; it no longer decides whether the idea is
+                # allowed to exist as a runnable setup (D52).
+                _set_status(s, idea, IdeaStatus.READY_FOR_FORMALIZATION,
+                            f"setup runnable (completeness {completeness:.0f}, normalized {normalized:.1f})")
             elif iq.coverage < settings.scoring.min_coverage_for_gate:
                 _set_status(s, idea, IdeaStatus.RESEARCHING,
                             f"coverage {iq.coverage:.0%} < {settings.scoring.min_coverage_for_gate:.0%}; "

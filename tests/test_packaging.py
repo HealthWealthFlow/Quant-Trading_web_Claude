@@ -83,7 +83,9 @@ def test_package_contents(env):
 def test_submit_eligible_idea_writes_queue_file(env):
     s, e, tmp = env
     iid = make(e)
-    assert score_idea(e, s, iid).status == "PROMISING"
+    # A source that states the decision and the risk control is ready to hand over, which is now a distinct
+    # status from merely scoring well (D52).
+    assert score_idea(e, s, iid).status == "READY_FOR_FORMALIZATION"
     ok, path, reasons = submit_to_queue(e, s, iid)
     assert ok and reasons == [] and path.parent == tmp / "queue" / "pending"
     data = json.loads(path.read_text())
@@ -94,13 +96,16 @@ def test_submit_eligible_idea_writes_queue_file(env):
 
 
 def test_ineligible_ideas_blocked_with_reasons(env):
+    """An idea whose entry the source never stated cannot be handed over: there would be nothing of the
+    source left to test, however complete the rest of its fields look."""
     s, e, tmp = env
-    vague = make(e, strategy_name="vague", signal="buy strength", instrument="UNKNOWN", entry_rule="UNKNOWN",
-                 exit_rule="UNKNOWN", lookback="UNKNOWN", position_sizing="UNKNOWN", rebalance="UNKNOWN")
+    vague = make(e, strategy_name="vague", signal="UNKNOWN", instrument="UNKNOWN", entry_rule="UNKNOWN",
+                 exit_rule="UNKNOWN", lookback="UNKNOWN", position_sizing="UNKNOWN", rebalance="UNKNOWN",
+                 transaction_cost_assumption="UNKNOWN")
     score_idea(e, s, vague)
     ok, path, reasons = submit_to_queue(e, s, vague)
     assert not ok and path is None
-    assert any("instrument unknown" in r for r in reasons) and any("completeness" in r for r in reasons)
+    assert any("no entry rule stated by the source" in r for r in reasons)
     hft = make(e, strategy_name="hft", signal="order book imbalance", time_horizon=TimeHorizon.HFT)
     score_idea(e, s, hft)
     assert any("latency" in r for r in submit_to_queue(e, s, hft)[2])

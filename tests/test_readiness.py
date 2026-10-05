@@ -204,3 +204,36 @@ def test_skip_is_decided_from_the_source_not_from_derivable_components():
     idea = _idea(asset_classes=["STOCK"], universe="S&P 500", instrument="SPY")
     assert readiness.source_share(idea) == 0.0
     assert readiness.skip_decision(idea)["skip"] is True
+
+
+def test_a_signal_description_is_not_an_entry_rule():
+    """A descriptive signal states no condition to trade under, so it must not satisfy the entry component.
+
+    Regression: idea 30's signal reads "Equity premium implied by the estimated SDF". Completeness counts
+    that as written down, but readiness and the eligibility gate must both treat the entry as missing, or an
+    idea with no testable rule could be handed to the backtester.
+    """
+    idea = _idea(asset_classes=["STOCK"], signal="Equity premium implied by the estimated SDF")
+
+    # Completeness may count it (the source did write something down).
+    from qsd.scoring.rules import formalization_completeness
+
+    assert "entry" not in formalization_completeness(idea)[1]
+
+    # Readiness must not: no entry, so nothing runnable and nothing worth completing.
+    result = readiness.setup_readiness(idea)
+    assert "entry" not in result["from_source"]
+    assert "entry" in result["blocking_missing"]
+    assert result["runnable"] is False
+    assert readiness.source_share(idea) == 0.0
+    assert readiness.skip_decision(idea)["skip"] is True
+
+
+def test_an_algorithm_rule_counts_as_the_entry():
+    """The D38 path stays intact: an update equation is a stated decision."""
+    idea = _idea(
+        asset_classes=["STOCK"],
+        algorithm_rule="w_{t+1} = w_t - eta * (r_t - r_bar) * x_t",
+    )
+    assert "entry" in readiness.setup_readiness(idea)["from_source"]
+    assert readiness.source_share(idea) == 0.25

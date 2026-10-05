@@ -22,7 +22,7 @@ from ..taxonomy import CampaignStatus, IdeaStatus
 from .directions import next_queries
 from .runner import CampaignLimits, CampaignRunner
 
-PROMISING_STATUSES = (IdeaStatus.PROMISING, IdeaStatus.SUBMITTED_TO_BACKTEST)
+PROMISING_STATUSES = (IdeaStatus.PROMISING, IdeaStatus.READY_FOR_FORMALIZATION, IdeaStatus.SUBMITTED_TO_BACKTEST)
 STALL_ROUNDS_DEFAULT = 3
 
 # Stop reasons that mean "the next round could not do better". `NO_NEW_SOURCES` is deliberately NOT here: a round

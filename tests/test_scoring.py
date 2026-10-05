@@ -103,7 +103,9 @@ def test_good_idea_scored_with_breakdown_and_no_claims_used(engine):
                                                          "sample_period"}
         assert idea.source_quality >= 80 and idea.formalization_completeness >= 90
         assert "999" not in str(d)  # claimed performance plays no part in scoring
-    assert r.coverage >= 0.6 and r.band in ("HIGH_PRIORITY", "PROMISING") and r.status == "PROMISING"
+    # The band still reports how promising it looks; the status now records that the setup is runnable (D52).
+    assert r.coverage >= 0.6 and r.band in ("HIGH_PRIORITY", "PROMISING")
+    assert r.status in ("PROMISING", "READY_FOR_FORMALIZATION")
     # claims don't change the score
     iid2, _ = add(engine, abstract, ids={"ID_DOI": "10.1/OTHER"}, **{**GOOD, "strategy_name": "B",
                                                                        "signal": "different signal b"})

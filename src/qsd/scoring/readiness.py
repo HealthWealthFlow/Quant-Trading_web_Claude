@@ -67,13 +67,23 @@ DERIVED_WHEN_SILENT: frozenset[str] = frozenset({"exit"})
 
 
 def _present(idea) -> dict[str, bool]:
-    """Which weighted components are already written down, by the same definition completeness uses."""
+    """Which weighted components the source itself supplied, by readiness's own definition.
+
+    Deliberately *not* the same definition `rules.formalization_completeness` uses for `entry`. There, a
+    descriptive `signal` counts, because completeness measures how much the source wrote down and a signal
+    definition is something written down. Here it must not: readiness decides whether a strategy can be
+    built and handed over, and a description is not a rule. Measured: idea 30's signal reads "Equity premium
+    implied by the estimated SDF", which states no condition under which to trade, yet it satisfied the entry
+    component under the completeness definition. Readiness and the eligibility gate must agree that such an
+    idea has no entry, so this is the one definition both consult.
+    """
+    has_entry = _known(idea.entry_rule, idea.algorithm_rule)
     return {
         "instrument": _known(idea.instrument),
         "universe": _known(idea.universe),
         # An algorithm-shaped strategy states its decision as an update equation rather than a bar rule, and
         # that is a complete decision (D38). Without this the PAMR class reads as having no entry at all.
-        "entry": _known(idea.entry_rule, idea.signal, idea.algorithm_rule),
+        "entry": has_entry,
         "exit": _known(idea.exit_rule, idea.stop_rule, idea.take_profit_rule, idea.holding_period),
         "timeframe": _known(idea.timeframe, idea.data_frequency, idea.rebalance),
         "parameters": _known(idea.lookback) or any(v != UNKNOWN for v in (idea.parameters or {}).values()),
@@ -108,7 +118,7 @@ def _bridgeable_from(idea, component: str) -> bool:
         # An exit may only be derived for a strategy that actually has an entry: a stop or target on a
         # position we know how to open. Without an entry there is no position to exit from, so the gap is
         # not an exit problem at all and must not be papered over.
-        return _known(idea.entry_rule, idea.signal, idea.algorithm_rule)
+        return _known(idea.entry_rule, idea.algorithm_rule)
     return True
 
 

@@ -20,6 +20,7 @@ from sqlalchemy import Engine, select
 from ..config import Settings
 from ..db import session_scope
 from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Source, SourceFact
+from ..scoring import readiness as readiness_mod
 from ..scoring import rules
 from ..taxonomy import UNKNOWN, IdeaSourceRole, IdeaStatus, MarketRegime, RegimeSuitability, TimeHorizon
 
@@ -119,7 +120,14 @@ def _source_ref(src: Source, ids: dict[str, str]) -> dict[str, Any]:
 
 
 def handoff_check(idea: Idea, provenance_known: bool, settings: Settings) -> list[str]:
-    """Reasons the idea may NOT enter the backtest queue (empty list = allowed). Spec §123."""
+    """Reasons the idea may NOT enter the backtest queue (empty list = allowed). Spec §123.
+
+    Eligibility rests on the setup being *runnable* rather than on how many fields the source happened to
+    write down. A source that states its decision rule but leaves the plumbing to convention is a legitimate
+    hypothesis to test, and the downstream system is designed to complete and then backtest it. What cannot
+    be handed over is an idea whose *entry* had to be invented (there would be nothing of the source left to
+    test) or one whose source said so little that completing it would mean inventing the strategy.
+    """
     h = settings.handoff
     reasons = []
     if idea.hard_fail_reasons:
@@ -127,8 +135,18 @@ def handoff_check(idea: Idea, provenance_known: bool, settings: Settings) -> lis
     if idea.status not in (IdeaStatus.PROMISING, IdeaStatus.READY_FOR_FORMALIZATION,
                            IdeaStatus.SUBMITTED_TO_BACKTEST):
         reasons.append(f"status is {idea.status.value} (needs PROMISING or READY_FOR_FORMALIZATION)")
-    if (idea.formalization_completeness or 0) < h.min_completeness:
-        reasons.append(f"formalization completeness {idea.formalization_completeness} < {h.min_completeness}")
+
+    readiness = readiness_mod.setup_readiness(idea)
+    skip = readiness_mod.skip_decision(idea)
+    if skip["skip"]:
+        reasons.append(f"source states too little to be worth completing ({skip['share']:.0%} of the setup; "
+                       f"floor {readiness_mod.MIN_SOURCE_SHARE:.0%})")
+    if "entry" not in readiness["from_source"]:
+        # The hypothesis itself is missing. Completing it would mean testing our rule, not the source's.
+        reasons.append("no entry rule stated by the source")
+    if not readiness["runnable"]:
+        reasons.append("setup not runnable: " + ", ".join(readiness["blocking_missing"]))
+
     iq = (idea.score_details or {}).get("idea_quality", {})
     if (iq.get("coverage") or 0) < h.min_coverage:
         reasons.append(f"score coverage {iq.get('coverage')} < {h.min_coverage}")
@@ -137,8 +155,6 @@ def handoff_check(idea: Idea, provenance_known: bool, settings: Settings) -> lis
     data = (iq.get("components") or {}).get("data_availability", {}).get("value")
     if data is None or data < h.min_data_availability:
         reasons.append("data availability not established")
-    if idea.instrument == UNKNOWN:
-        reasons.append("instrument unknown")
     if idea.time_horizon in (TimeHorizon.HFT, TimeHorizon.SECONDS):
         reasons.append("latency-critical horizon not realistically tradable for retail infrastructure")
     if not provenance_known:
