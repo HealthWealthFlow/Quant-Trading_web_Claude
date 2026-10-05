@@ -18,13 +18,27 @@ def _idea(**fields) -> Idea:
     return Idea(**base)
 
 
-def test_decision_rule_is_never_bridgeable():
-    """Entry and exit stay blocking: no stated context can conjure a decision rule."""
+def test_entry_is_never_bridgeable_and_exit_is():
+    """Entry is the hypothesis and can never be derived; exit is risk control and may be, but only
+    for a strategy that has an entry to exit from."""
     idea = _idea(asset_classes=["STOCK"], time_horizon="MULTI_DAY", position_direction="LONG")
     result = readiness.setup_readiness(idea)
     assert "entry" in result["blocking_missing"]
+    # No entry was stated, so there is no position to exit: an exit may not be conjured either.
     assert "exit" in result["blocking_missing"]
     assert result["runnable"] is False
+
+    with_entry = _idea(
+        asset_classes=["STOCK"],
+        position_direction="LONG",
+        entry_rule="buy the 20-day breakout",
+    )
+    derived = readiness.setup_readiness(with_entry)
+    assert derived["blocking_missing"] == []
+    assert derived["runnable"] is True
+    assert "exit" in derived["bridgeable_missing"]
+    # The derived exit is a gap we filled, never something attributed to the source.
+    assert "exit" not in derived["from_source"]
 
 
 def test_plumbing_gaps_do_not_block_a_stated_strategy():
@@ -59,14 +73,16 @@ def test_algorithm_strategy_counts_as_having_a_decision():
     """An update equation is a complete decision (D38), so a portfolio-weight strategy is not 'undecided'."""
     idea = _idea(
         asset_classes=["STOCK"],
+        time_horizon="MULTI_DAY",
         universe="30 largest crypto pairs",
         strategy_kind="PORTFOLIO_WEIGHT",
         algorithm_rule="w_{t+1} = w_t - eta * (r_t - r_bar) * x_t",
     )
     result = readiness.setup_readiness(idea)
     assert "entry" not in result["blocking_missing"]
-    # Its exit is still unstated and no context derives one, so it remains a real gap.
-    assert "exit" in result["blocking_missing"]
+    # The update equation is the decision, so an exit can be derived from it and the setup is runnable.
+    assert "exit" in result["bridgeable_missing"]
+    assert result["blocking_missing"] == []
 
 
 def test_instrument_and_universe_are_bridgeable_only_from_stated_context():
@@ -139,3 +155,52 @@ def test_unknown_placeholder_is_not_treated_as_a_known_value():
     assert "instrument" not in result["from_source"]
     # Scope is derivable from the stated asset class, so it is a bridgeable gap rather than a false "known".
     assert "universe" in result["bridgeable_missing"]
+
+
+# ---- skip rule: do not complete a source that said almost nothing --------------------------------
+
+
+def test_a_source_that_states_only_a_sizing_is_skipped():
+    """1 of 4 essential components (25%) is below the floor, so the idea is skipped rather than invented."""
+    idea = _idea(asset_classes=["STOCK"], position_sizing="fixed fraction")
+    decision = readiness.skip_decision(idea)
+    assert decision["skip"] is True
+    assert decision["reason"] == "INSUFFICIENT_INFORMATION"
+    assert readiness.source_share(idea) == 0.25
+
+
+def test_a_source_that_states_entry_and_exit_is_worth_completing():
+    """Half the essential components is above the floor: completion stays a test of the source."""
+    idea = _idea(
+        asset_classes=["STOCK"],
+        entry_rule="buy the breakout",
+        exit_rule="sell at the 2x ATR stop",
+    )
+    decision = readiness.skip_decision(idea)
+    assert decision["skip"] is False
+    assert decision["reason"] is None
+    assert readiness.source_share(idea) == 0.5
+
+
+def test_an_empty_extraction_from_an_old_prompt_is_reextracted_not_skipped():
+    """A thin result from a stale prompt may be a failed extraction, so it must not be discarded."""
+    idea = _idea(asset_classes=["STOCK"])
+    decision = readiness.skip_decision(idea, extracted_with="b4", current_prompt="b5")
+    assert decision["skip"] is False
+    assert decision["reason"] == "REEXTRACT_FIRST"
+
+
+def test_the_same_thin_extraction_is_skipped_once_it_used_the_current_prompt():
+    """With extraction no longer an explanation, a thin source really is thin."""
+    idea = _idea(asset_classes=["STOCK"])
+    decision = readiness.skip_decision(idea, extracted_with="b5", current_prompt="b5")
+    assert decision["skip"] is True
+    assert decision["reason"] == "INSUFFICIENT_INFORMATION"
+
+
+def test_skip_is_decided_from_the_source_not_from_derivable_components():
+    """Derivable plumbing must not be counted as the source having supplied something."""
+    # A stated universe and instrument are useful, but neither is a decision: this is still 0 of 4 essential.
+    idea = _idea(asset_classes=["STOCK"], universe="S&P 500", instrument="SPY")
+    assert readiness.source_share(idea) == 0.0
+    assert readiness.skip_decision(idea)["skip"] is True

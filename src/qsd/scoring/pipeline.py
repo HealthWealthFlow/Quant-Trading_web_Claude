@@ -8,9 +8,10 @@ from dataclasses import dataclass
 
 from sqlalchemy import Engine, select
 
+from ..ai.prompts import STAGE_B_VERSION
 from ..config import Settings
 from ..db import session_scope
-from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Rejection, Source, SourceFact
+from ..db.models import AICall, Idea, IdeaSource, IdeaStatusHistory, Rejection, Source, SourceFact
 from ..security import INJECTION_FLAG
 from ..taxonomy import UNKNOWN, IdeaSourceRole, IdeaStatus, RegimeBasis, RegimeSuitability
 from . import dedupe, evidence, rules, scores
@@ -116,6 +117,12 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
         # completeness stays the honest measure of what the source wrote down, so filling gaps with derived
         # values can never inflate an idea's quality (see scoring/readiness.py).
         readiness = readiness_mod.setup_readiness(idea)
+        # Whether the source said enough to be worth completing at all. An extraction that used an older
+        # prompt is flagged for re-extraction rather than skipped, because a thin result may be our failure
+        # to read the paper rather than a thin paper.
+        skip = readiness_mod.skip_decision(
+            idea, extracted_with=_extracted_with(s, idea), current_prompt=STAGE_B_VERSION
+        )
 
         # regimes and diversification tags (spec §79, §137)
         known = [r for r in idea.regimes if r.suitability is not RegimeSuitability.UNKNOWN]
@@ -154,6 +161,7 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
             "completeness": {"score": completeness, "band": rules.completeness_band(completeness),
                              "missing": missing},
             "setup_readiness": readiness,
+            "skip": skip,
             "complexity": complexity_parts, "dedupe": {"class": dclass, "of": dup_of}, "band": band,
             "priority": priority, "note": "Scores never use claimed performance (spec §81, §82).",
         }
@@ -179,6 +187,27 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
                 _set_status(s, idea, new, f"quality gate band {band} (normalized {normalized:.1f})")
         return ScoreResult(idea.id, idea.status.value, iq.score, iq.coverage, priority, band,
                            idea.hard_fail_reasons)
+
+
+def _extracted_with(session, idea) -> str | None:
+    """Which stage-B prompt version produced this idea's rules, so a thin result can be told apart from a
+    failed extraction. Read from the AI ledger; no extra call is made.
+
+    Stage B runs before individual ideas exist, so its ledger rows carry the *source* rather than an idea id
+    (this is why the lookup is by source, matching `ai/extract.py`).
+    """
+    if idea.primary_source_id is None:
+        return None
+    return session.execute(
+        select(AICall.prompt_version)
+        .where(
+            AICall.source_id == idea.primary_source_id,
+            AICall.task == "stage_b_extract",
+            AICall.success.is_(True),
+        )
+        .order_by(AICall.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
 
 
 def score_all(engine: Engine, settings: Settings) -> list[ScoreResult]:

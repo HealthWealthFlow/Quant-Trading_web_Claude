@@ -14,14 +14,18 @@ strategy itself.
 
 The load-bearing distinction, and the whole reason this module exists:
 
-    A gap the source left in the *plumbing* (sizing, order type, costs, clock, proxy instrument) can be
-    filled from convention and still be a legitimate test of the source's hypothesis.
-    A gap in the *decision rule* (entry, exit) cannot: filling it means we invented the strategy, and
-    backtesting it would measure our invention, not the source.
+    A gap the source left in the *plumbing* (sizing, order type, costs, clock, scope, proxy instrument) can
+    be filled from convention and still be a legitimate test of the source's hypothesis.
+    A gap in the source's *entry* cannot: filling it means we invented the strategy, and backtesting it
+    would measure our invention, not the source.
+    An *exit* sits between the two. It is risk control, not the hypothesis: a source that never says when to
+    leave leaves the backtest holding a position forever, which is unrealistic and usually worse than any
+    sensible stop. So when the source is silent an exit is derived from a quant trader's standpoint and
+    labelled as derived, never presented as the source's own.
 
-So entry and exit are deliberately NOT bridgeable. The values that fill the bridgeable components must be
-recorded per field with their origin (SOURCE / DERIVED / DEFAULT / AI_SUGGESTED / UNRESOLVED) so the
-downstream system can tell a source-stated parameter from a proposed one.
+So entry is deliberately NOT bridgeable, and it is the only component that is not. The values that fill the
+other components must be recorded per field with their origin (SOURCE / DERIVED / DEFAULT / AI_SUGGESTED /
+UNRESOLVED) so the downstream system can tell a source-stated parameter from a proposed one.
 
 Nothing in this module changes a score, a gate or a status. It only reports.
 """
@@ -45,11 +49,21 @@ BRIDGEABLE: frozenset[str] = frozenset({
     # invented. Measured: 17 of 31 live ideas were blocked on this alone, mostly because the source states a
     # universe (an index, a sector) that extraction filed elsewhere or missed.
     "universe",
+    # Risk control, derived when the source is silent: see DERIVED_WHEN_SILENT below. Listed here as well
+    # because this set decides whether a missing component can be satisfied at all.
+    "exit",
 })
 
-#: Components that must come from the source. Filling these invents the strategy rather than completing it.
-#: The decision rule is the source's hypothesis; without it there is nothing to test.
-NOT_BRIDGEABLE: frozenset[str] = frozenset({"entry", "exit"})
+#: Components that must come from the source. Entry is the hypothesis: if the source does not say what
+#: triggers a position, there is nothing to test, and no amount of completion can create an edge.
+NOT_BRIDGEABLE: frozenset[str] = frozenset({"entry"})
+
+#: Derived by the system when the source is silent, from a quant trader's standpoint at that moment, and
+#: always labelled with its origin. An exit is risk control rather than edge: a source that never says when
+#: to leave leaves the backtest holding a position forever, which is unrealistic and usually *worse* than any
+#: sensible stop, so supplying one makes the test more honest rather than more flattering. It is never
+#: presented as the source's own wording.
+DERIVED_WHEN_SILENT: frozenset[str] = frozenset({"exit"})
 
 
 def _present(idea) -> dict[str, bool]:
@@ -90,6 +104,11 @@ def _bridgeable_from(idea, component: str) -> bool:
         # from a stated instrument ("S&P 500 Index" -> that index's members). With neither there is nothing to
         # scope from, so the gap stays real.
         return bool(idea.asset_classes) or _known(idea.instrument)
+    if component == "exit":
+        # An exit may only be derived for a strategy that actually has an entry: a stop or target on a
+        # position we know how to open. Without an entry there is no position to exit from, so the gap is
+        # not an exit problem at all and must not be papered over.
+        return _known(idea.entry_rule, idea.signal, idea.algorithm_rule)
     return True
 
 
@@ -123,4 +142,48 @@ def setup_readiness(idea) -> dict:
         "runnable": all(satisfied[k] for k in satisfied),
         "note": "Readiness counts a bridgeable gap as fillable; the score does not. blocking_missing must "
                 "come from the source and must never be invented.",
+    }
+
+
+#: How much of a setup the source must supply before completing it is honest work rather than invention.
+#: Measured on the live database: the burden is bimodal with a wide empty band, so this sits inside the gap
+#: and is not sensitive to the exact value. Sources that state almost nothing are skipped instead of being
+#: completed, which also saves the AI spend they would otherwise consume.
+MIN_SOURCE_SHARE = 0.35
+
+#: Components that count toward how much the source supplied. The decision rule and risk control are the
+#: strategy; the rest is how it is implemented, and is expected to come from convention rather than a paper.
+DECISION_FIELDS: tuple[str, ...] = ("entry", "exit", "sizing", "execution")
+
+
+def source_share(idea) -> float:
+    """The share of a setup's essential components that the source itself supplied."""
+    present = _present(idea)
+    return sum(1 for k in DECISION_FIELDS if present[k]) / len(DECISION_FIELDS)
+
+
+def skip_decision(idea, *, extracted_with: str | None = None, current_prompt: str | None = None) -> dict:
+    """Should this idea be skipped as not worth completing, or is it worth spending AI budget on?
+
+    A thin source is not the same thing as a failed extraction, and treating them alike would discard good
+    papers whose rules were simply not captured. So a thin result is only accepted as "the source is thin"
+    once it has been extracted with the current prompt: an idea captured by an older prompt is flagged for
+    re-extraction instead, and never silently skipped (measured: one live source produced both a fully
+    specified idea and an entirely empty one).
+    """
+    share = source_share(idea)
+    if share >= MIN_SOURCE_SHARE:
+        return {"skip": False, "share": share, "reason": None}
+
+    stale = bool(extracted_with and current_prompt and extracted_with != current_prompt)
+    if stale:
+        return {
+            "skip": False, "share": share, "reason": "REEXTRACT_FIRST",
+            "detail": f"only {share:.0%} of the setup came from the source, but it was extracted with "
+                      f"{extracted_with} rather than {current_prompt}; re-extract before judging the source",
+        }
+    return {
+        "skip": True, "share": share, "reason": "INSUFFICIENT_INFORMATION",
+        "detail": f"source supplied {share:.0%} of the setup (floor {MIN_SOURCE_SHARE:.0%}); completing it "
+                  "would mean inventing the strategy rather than testing the source's",
     }
