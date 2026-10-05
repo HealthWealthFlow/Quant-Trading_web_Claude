@@ -2,7 +2,7 @@
   "project": "Quant Strategy Discovery & Source Intelligence System",
   "phase": "1-complete",
   "working_branch": "claude/loving-noether-1m40os",
-  "database_version": 4,
+  "database_version": 5,
   "milestones": [
     {
       "id": "M0",
@@ -73,5 +73,8 @@
   ],
   "open_question": "P4 calibration not yet run: the best measured idea scores idea-quality 63.1-63.7 against the PROMISING gate of 70, and expected_robustness is 0.0 on every idea because deepening had never run. Run `qsd harvest --target 3 --max-rounds 3` and decide from the measured component table whether the gate is calibrated for retail technical analysis, rather than lowering it blind.",
   "last_commit": "see git log",
-  "updated_at": "2026-10-02"
+  "updated_at": "2026-10-02",
+  "last_updated": "2026-10-05",
+  "current_main": "PR #17 (12c6390)",
+  "handoff": "HANDOFF.md (section 0 = current state and next steps)"
 }

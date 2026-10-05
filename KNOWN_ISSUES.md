@@ -26,3 +26,11 @@
   right (its real exit is the stated annual rebalance), so it is left as is; a wording rule would be fragile.
 - **Evidence sentences:** 24 of 30 correct at the first hand check (D45 fixed the 6 misses). A signal *definition*
   that says "100% out-of-sample" still counts as an out-of-sample test.
+- **No ground truth (2026-10-05).** No score has been compared with a backtest result; 11 strategies are queued. The
+  scoring weights and the 70 gate are measured against evidence in the sources, not against outcomes.
+- **Scoring quirks (measured, not changed):** stating costs scores lower than silence (`edge_vs_cost` 0.6 vs
+  unassessed; same shape for `liquidity`, `diversification`); `parameter_simplicity` counts words and double-counts
+  thresholds. Neither changes which ideas clear 70.
+- **Stitched quotes:** a quote that joins two sentences and skips one between them is rejected (idea 10's entry rule).
+  Correct under "continuous text"; whether to allow a logged small gap is undecided.
+- **Parts of one system are separate ideas** (ideas 5–8 under 9; ideas 11–15 from one paper under an older prompt).
