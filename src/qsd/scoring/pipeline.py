@@ -175,6 +175,13 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
             elif dclass == "DUPLICATE":
                 _reject_once(s, idea.id, rules.RejectionReason.DUPLICATE, f"duplicate of idea {dup_of}", hard=False)
                 _set_status(s, idea, IdeaStatus.DUPLICATE, f"same fingerprint as idea {dup_of}")
+            elif _promotional(idea):
+                # A source that advertises performance does not advance to a runnable setup on its own. Checked
+                # here as well as at extraction time so it holds for every idea already stored and on every
+                # re-score, rather than only for ideas extracted after the rule was written (measured: three
+                # ideas from a promotional YouTube transcript were promoted with the flags recorded but ignored).
+                _set_status(s, idea, IdeaStatus.NEEDS_REVIEW,
+                            "source advertises performance; a human reviews before it is handed over")
             elif idea.status is IdeaStatus.NEEDS_REVIEW:
                 pass  # human/second-opinion review first (spec §87)
             elif readiness["runnable"] and "entry" in readiness["from_source"] and not skip["skip"]:
@@ -194,6 +201,21 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
                 _set_status(s, idea, new, f"quality gate band {band} (normalized {normalized:.1f})")
         return ScoreResult(idea.id, idea.status.value, iq.score, iq.coverage, priority, band,
                            idea.hard_fail_reasons)
+
+
+def _promotional(idea) -> bool:
+    """Does this idea's source advertise performance rather than evidence it?
+
+    The triage model reports these as free text ("36 wins and just five losses", "These performance numbers are
+    verified", "it just broke 1,000%"), so they cannot be matched against a fixed vocabulary of scam phrases,
+    and they are outside the deterministic RED_FLAGS patterns. Any triage flag is a performance claim by
+    construction, because that is what triage is asked to report, and `claimed_*` values never affect scoring -
+    so a flagged source is reviewed by a person before anything is built on it.
+    """
+    flags = idea.red_flags or []
+    return (INJECTION_FLAG in flags
+            or any(str(f).startswith("TRIAGE_RED_FLAG:") for f in flags)
+            or len(set(flags) & rules.SCAM_FLAGS) >= 1)
 
 
 def _extracted_with(session, idea) -> str | None:

@@ -11,11 +11,19 @@ from sqlalchemy import Engine, delete, select
 
 from ..config import Settings
 from ..db import new_idea, session_scope
-from ..db.models import AICache, AICall, Idea, IdeaSource, IdeaStatusHistory, Source, SourceFact
+from ..db.models import AICache, AICall, Idea, IdeaSource, IdeaStatusHistory, Rejection, Source, SourceFact
 from ..handlers import HandlerResult
 from ..scoring.evidence import store_evidence
 from ..security import INJECTION_FLAG, wrap_untrusted
-from ..taxonomy import UNKNOWN, ExtractionMethod, IdeaSourceRole, IdeaStatus, RegimeBasis, RegimeSuitability
+from ..taxonomy import (
+    UNKNOWN,
+    ExtractionMethod,
+    IdeaSourceRole,
+    IdeaStatus,
+    RegimeBasis,
+    RegimeSuitability,
+    RejectionReason,
+)
 from . import prompts
 from .gateway import AIGateway, AIOutputError
 from .grounding import GroundingReport, ground_strategy
@@ -129,7 +137,15 @@ def _carried_flags(idea: Idea, result: HandlerResult) -> list[str]:
 
 
 def _needs_review(rep: GroundingReport, red_flags: list[str]) -> bool:
-    return rep.needs_review or INJECTION_FLAG in red_flags
+    """A source that advertises performance does not get to advance without a human looking at it.
+
+    The triage model reports these as free text ("36 wins and just five losses", "These performance numbers
+    are verified", "it just broke 1,000%"), so they cannot be matched against a fixed vocabulary. They are
+    still exactly what the flag is for. Measured: a promotional YouTube transcript produced three ideas that
+    were automatically promoted to runnable setups with the promotional language recorded but ignored.
+    """
+    return (rep.needs_review or INJECTION_FLAG in red_flags
+            or any(f.startswith("TRIAGE_RED_FLAG:") for f in red_flags))
 
 
 def _store_strategy(s, source_id: int, campaign_id: int | None, st: ExtractedStrategy, rep: GroundingReport,
@@ -308,7 +324,43 @@ def _update_in_place(s, idea: Idea, source_id: int, strategy: ExtractedStrategy,
 class ReextractReport(RegroundReport):
     new_idea_ids: list[int] = field(default_factory=list)   # strategies the new answer has and the old did not
     unmatched_idea_ids: list[int] = field(default_factory=list)  # old ideas the new answer no longer names
+    superseded_idea_ids: list[int] = field(default_factory=list)  # empty shells retired in favour of a new read
     cost_usd: float = 0.0
+
+
+#: Below this completeness an idea is a shell: extraction produced a record but almost no usable rule. Such an
+#: idea left behind by a re-extraction is a failed read of the same document, not a separate strategy.
+_SHELL_COMPLETENESS = 30.0
+
+
+def _is_empty_shell(idea: Idea) -> bool:
+    """True when this idea holds no stated decision rule and almost no other content.
+
+    Deliberately strict: an idea with a real rule is never touched, so nothing a reader would want to keep can
+    be retired by this path.
+    """
+    if (idea.formalization_completeness or 0.0) >= _SHELL_COMPLETENESS:
+        return False
+    # Equivalent to scoring.rules._known over the decision fields, inlined to keep this module free of an
+    # import from the scoring package (which already imports AI prompts).
+    return all(not v or v == UNKNOWN for v in (idea.entry_rule, idea.algorithm_rule))
+
+
+def _supersede(s, old: Idea, new_ids: list[int], source_id: int) -> None:
+    """Retire an empty shell that a fresh read of the same source has replaced.
+
+    Re-extraction matches strategies to existing ideas by name, so an extraction that names the same document's
+    strategies differently creates new ideas and leaves the old shells in place. Measured: idea 29 (completeness
+    40, no entry) survived beside ideas 36-38 from the same paper, and idea 10 beside 32-34. Left alone they
+    keep appearing as separate candidates. History is preserved: the row is archived with a reason and a
+    DUPLICATE rejection record, never deleted.
+    """
+    reason = (f"superseded by idea {new_ids[0]} from a re-extraction of source {source_id} with "
+              f"{prompts.STAGE_B_VERSION}: this record held no stated rule")
+    s.add(Rejection(idea_id=old.id, reason=RejectionReason.DUPLICATE, detail=reason[:2000], is_hard_fail=False))
+    s.add(IdeaStatusHistory(idea_id=old.id, from_status=old.status, to_status=IdeaStatus.ARCHIVED,
+                            reason=reason[:2000]))
+    old.status = IdeaStatus.ARCHIVED
 
 
 def reextract_source(gw: AIGateway, engine: Engine, settings: Settings, source_id: int,
@@ -348,6 +400,17 @@ def reextract_source(gw: AIGateway, engine: Engine, settings: Settings, source_i
                                      f"re-extracted ({version})", report)
         report.unmatched_idea_ids = [i.id for i in ideas if i.id not in matched
                                      and i.status is not IdeaStatus.SUBMITTED_TO_BACKTEST]
+        if report.new_idea_ids:
+            # A fresh read of this source replaced nothing by name, but any idea it left behind holding no rule
+            # is a failed read of the same document rather than a second strategy.
+            for old in ideas:
+                if old.id in matched or old.status in (IdeaStatus.SUBMITTED_TO_BACKTEST, IdeaStatus.ARCHIVED):
+                    continue
+                if _is_empty_shell(old):
+                    _supersede(s, old, report.new_idea_ids, source_id)
+                    report.superseded_idea_ids.append(old.id)
+            report.unmatched_idea_ids = [i for i in report.unmatched_idea_ids
+                                         if i not in report.superseded_idea_ids]
     return report
 
 
