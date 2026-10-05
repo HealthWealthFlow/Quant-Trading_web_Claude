@@ -95,6 +95,27 @@ def test_submit_eligible_idea_writes_queue_file(env):
     assert list((tmp / "queue" / "pending").glob("*.tmp")) == []  # atomic write left no temp files
 
 
+def test_algorithm_rule_reaches_the_package(env):
+    """An algorithm-shaped strategy's decision must survive into the package.
+
+    Regression: `packaging/package.py` kept its own copy of the rule-field list, which was never updated when
+    D38 added `strategy_kind` and `algorithm_rule`. So a portfolio-weight strategy was extracted, grounded to a
+    quote, and still reported as having no source-stated decision rule - and the bridge refused to hand it over.
+    """
+    from qsd.ai.schemas import RULE_FIELDS as CANONICAL
+    from qsd.packaging.package import RULE_FIELDS as PACKAGE_FIELDS
+
+    assert set(PACKAGE_FIELDS) == set(CANONICAL), "the package must use the one canonical rule-field list"
+
+    s, e, _ = env
+    iid = make(e, strategy_name="PAMR", entry_rule="UNKNOWN", exit_rule="UNKNOWN", signal="UNKNOWN",
+               strategy_kind="PORTFOLIO_WEIGHT",
+               algorithm_rule="w_{t+1} = w_t - tau * (r_t - r_bar) * x_t")
+    pkg = build_package(e, s, iid)
+    assert "algorithm_rule" in pkg.known_rules
+    assert pkg.known_rules["algorithm_rule"]["value"].startswith("w_{t+1}")
+
+
 def test_a_queued_idea_can_be_withdrawn_and_goes_back_to_review(env):
     """Submission is reversible: the package leaves pending/ without being destroyed, and a person decides
     what happens to the idea next."""

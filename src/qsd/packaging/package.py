@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine, select
 
+from ..ai.schemas import RULE_FIELDS as SCHEMA_RULE_FIELDS
 from ..config import Settings
 from ..db import session_scope
 from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Source, SourceFact
@@ -28,10 +29,11 @@ PACKAGE_VERSION = "1.2"  # 1.1: + grounding; 1.2: + maturity
 DOWNSTREAM_WARNING = ("EXTERNAL PERFORMANCE CLAIMS ARE NOT VALIDATED. "
                       "DOWNSTREAM SYSTEM MUST RECOMPUTE EVERYTHING.")  # spec §124
 
-RULE_FIELDS = ("instrument", "universe", "timeframe", "data_frequency", "indicators", "signal", "lookback",
-               "entry_rule", "exit_rule", "stop_rule", "take_profit_rule", "position_sizing", "rebalance",
-               "order_type", "trading_session", "holding_period", "transaction_cost_assumption",
-               "liquidity_requirement", "portfolio_rules", "risk_rules")
+# Rule fields come from the one canonical definition. A duplicate tuple used to live here and was never
+# updated when D38 added `strategy_kind` and `algorithm_rule`, so those rules were invisible to every research
+# package: measured, idea 31's algorithm was extracted, grounded to a page-2 quote, and still reported as
+# having no source-stated decision rule.
+RULE_FIELDS = SCHEMA_RULE_FIELDS
 
 # Downstream checks per asset class (spec §57–§62). Checklists for the backtester, not facts about the strategy.
 ASSET_CHECKS: dict[str, list[str]] = {
@@ -188,8 +190,18 @@ def build_package(engine: Engine, settings: Settings, idea_id: int) -> ResearchP
         comps = iq.get("components", {})
         reasons = handoff_check(idea, provenance_known, settings)
 
-        known = {f: _evidence(facts.get(f.upper()), getattr(idea, f)) for f in RULE_FIELDS
-                 if getattr(idea, f) != UNKNOWN}
+        # A rule counts as known if the column holds it OR a grounded fact exists for it. Taking the column
+        # alone silently dropped rules that were extracted and grounded but never copied onto the idea row:
+        # measured, idea 31's ALGORITHM_RULE exists as a fact with a page-2 quote, yet the package reported the
+        # idea as having no source-stated decision rule and the bridge warned it should not be handed over.
+        known = {}
+        for f in RULE_FIELDS:
+            value = getattr(idea, f)
+            if value == UNKNOWN:
+                fact = facts.get(f.upper())
+                value = fact.value if fact is not None else UNKNOWN
+            if value != UNKNOWN:
+                known[f] = _evidence(facts.get(f.upper()), value)
         claims = {k: {**_evidence(facts.get(k.upper()), getattr(idea, k)), "validated": False}
                   for k in ("claimed_sharpe", "claimed_cagr", "claimed_max_dd", "claimed_win_rate", "claimed_pf")
                   if getattr(idea, k)}

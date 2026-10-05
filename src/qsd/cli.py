@@ -476,6 +476,26 @@ def _cmd_queue(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_handoff(args: argparse.Namespace) -> int:
+    from .packaging import export_bundle
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    if not args.export:
+        print("nothing to do (use --export to write the bundle)", file=sys.stderr)
+        return 2
+    out = s.resolve_path(args.out) if args.out else s.resolve_path(s.paths.data_dir) / "handoff_bridge"
+    result = export_bundle(engine, s, out, idea_ids=args.idea or None)
+    print(f"Bundle: {result.out_dir}")
+    print(f"  sources: {result.sources}   ideas: {result.ideas}")
+    print(f"  documents copied: {result.texts}   evidence digests: {result.digests}")
+    print("  import with the API calls in CONTRACT.md (this bundle never writes another system's database)")
+    for w in result.warnings:
+        print(f"  WARNING: {w}", file=sys.stderr)
+    return 0
+
+
 def _cmd_web(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -730,6 +750,12 @@ def build_parser() -> argparse.ArgumentParser:
                                                        "eligible, with a tally of blocking reasons")
     qq.add_argument("--withdraw", type=int, action="append", default=[],
                     help="take a queued idea back out of pending/ (repeatable); it returns to NEEDS_REVIEW")
+    hx = sub.add_parser("handoff", help="build a portable bundle of ideas for the downstream backtester")
+    hx.add_argument("--export", action="store_true", help="write the bundle (sources, ideas, documents, contract)")
+    hx.add_argument("--out", help="output folder (default: data/handoff_bridge)")
+    hx.add_argument("--idea", type=int, action="append", default=[], help="only this idea (repeatable)")
+    hx.add_argument("--db", help="database path or SQLAlchemy URL")
+    hx.set_defaults(func=_cmd_handoff)
     qq.add_argument("--db", help="database path or SQLAlchemy URL")
     qq.set_defaults(func=_cmd_queue)
     wb = sub.add_parser("web", help="start the read-only dashboard (default http://127.0.0.1:8877/)")
