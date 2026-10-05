@@ -45,7 +45,7 @@ from ..taxonomy import (
     TimeHorizon,
 )
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MAX_QUOTE_CHARS = 300  # copyright: short necessary quotations only (spec §108)
 
 
@@ -187,6 +187,13 @@ class Idea(Base):
     # specified. These two fields let that be recorded instead of hard-failing as RULES_NOT_QUANTIFIABLE (D38).
     strategy_kind: Mapped[str] = _unknown_text()   # BAR_RULE | ALGORITHM | PORTFOLIO_WEIGHT | MACHINE_LEARNING
     algorithm_rule: Mapped[str] = _unknown_text()  # the stated decision/update mechanism, verbatim-grounded
+    # v6: the runnable setup handed to the backtester, and where each of its values came from.
+    # `setup` holds the assembled, fully-specified field values (including derived ones) and never replaces the
+    # grounded values above: `ideas` stays a faithful record of what the source said, `setup` is what we hand
+    # over. `fill_origins` maps field name -> origin kind (SOURCE / DERIVED / DEFAULT / AI_SUGGESTED /
+    # UNRESOLVED) so a source-stated parameter is always distinguishable from a proposed one downstream.
+    setup: Mapped[dict] = mapped_column(default=dict)
+    fill_origins: Mapped[dict] = mapped_column(default=dict)
     lookback: Mapped[str] = _unknown_text()
     entry_rule: Mapped[str] = _unknown_text()
     exit_rule: Mapped[str] = _unknown_text()

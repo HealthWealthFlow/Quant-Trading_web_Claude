@@ -14,6 +14,7 @@ from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Rejection, Source, 
 from ..security import INJECTION_FLAG
 from ..taxonomy import UNKNOWN, IdeaSourceRole, IdeaStatus, RegimeBasis, RegimeSuitability
 from . import dedupe, evidence, rules, scores
+from . import readiness as readiness_mod
 
 FROZEN_STATUSES = {IdeaStatus.SUBMITTED_TO_BACKTEST}
 
@@ -111,6 +112,11 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
         normalized = iq.normalized or 0.0
         band = scores.gate_band(normalized, gate.high_priority, gate.promising, gate.research_further)
 
+        # Setup readiness answers a different question from completeness and is reported, never scored:
+        # completeness stays the honest measure of what the source wrote down, so filling gaps with derived
+        # values can never inflate an idea's quality (see scoring/readiness.py).
+        readiness = readiness_mod.setup_readiness(idea)
+
         # regimes and diversification tags (spec §79, §137)
         known = [r for r in idea.regimes if r.suitability is not RegimeSuitability.UNKNOWN]
         if known and all(r.basis is RegimeBasis.RATIONALE_INFERRED for r in known):
@@ -147,6 +153,7 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
             "evidence_sentences": evidence_sentences,
             "completeness": {"score": completeness, "band": rules.completeness_band(completeness),
                              "missing": missing},
+            "setup_readiness": readiness,
             "complexity": complexity_parts, "dedupe": {"class": dclass, "of": dup_of}, "band": band,
             "priority": priority, "note": "Scores never use claimed performance (spec §81, §82).",
         }
