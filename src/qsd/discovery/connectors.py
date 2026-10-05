@@ -464,8 +464,67 @@ class GitHubConnector(Connector):
         return out
 
 
+class WebSearchConnector(Connector):
+    """Blogs, broker research and Substacks — the channel academic connectors cannot reach (spec §11).
+
+    Measured need: academic sources rarely describe the retail technical-analysis setups the objective asks for,
+    and many such papers are paywalled, so papers alone leave a whole class of strategy unreachable. A web
+    search API is the only general way in.
+
+    Backed by Firecrawl, whose key is present in the environment as `FIRECRAWL_API_KEY`. Only metadata (title,
+    URL, snippet) is collected here; the page itself is fetched later through the ordinary polite fetcher, so
+    robots.txt, rate limits and the paywall/CAPTCHA checks apply to the real request exactly as for any other
+    source. The connector never scrapes a page itself, so it cannot bypass any of that.
+    """
+
+    name = "web"
+    API = "https://api.firecrawl.dev/v1/search"
+    KEY_ENV = "FIRECRAWL_API_KEY"
+
+    def __init__(self, fetcher: PoliteFetcher, contact_email: str | None = None, api_key: str | None = None,
+                 include_domains: list[str] | None = None):
+        super().__init__(fetcher, contact_email)
+        self.api_key = api_key
+        self.include_domains = include_domains or []
+
+    def search(self, query: str, limit: int = 10) -> list[Candidate]:
+        if not self.api_key:
+            raise ConnectorError(f"{self.name}: {self.KEY_ENV} is not set (a search API key is required)")
+        body: dict = {"query": query, "limit": max(1, min(limit, 20))}
+        if self.include_domains:
+            body["includeDomains"] = self.include_domains
+        resp = self.fetcher.fetch(
+            self.API, official_api=True, post_body=json.dumps(body).encode(),
+            extra_headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+        )
+        if not resp.ok or resp.content is None:
+            raise ConnectorError(f"{self.name}: {resp.access_status.value} {resp.error or ''}".strip())
+        try:
+            data = json.loads(resp.content)
+        except ValueError:
+            raise ConnectorError(f"{self.name}: response was not JSON") from None
+        rows = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            raise ConnectorError(f"{self.name}: unexpected response shape")
+        out: list[Candidate] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            url = row.get("url")
+            if not url:
+                continue
+            c = Candidate(self.name, work_type="web-page", url=url)
+            c.title = _clean(row.get("title")) or UNKNOWN
+            # The snippet is discovery metadata only; it is stored as the abstract so a cheap relevance filter
+            # can run before any page is fetched, never as evidence about the strategy.
+            c.abstract = _clean(row.get("description")) or None
+            c.publication_date = _clean(row.get("date")) or UNKNOWN
+            out.append(c)
+        return out
+
+
 CONNECTORS = {"arxiv": ArxivConnector, "openalex": OpenAlexConnector, "crossref": CrossrefConnector,
-              "youtube": YouTubeConnector, "github": GitHubConnector}
+              "youtube": YouTubeConnector, "github": GitHubConnector, "web": WebSearchConnector}
 PAPER_CONNECTORS = ("arxiv", "openalex", "crossref")
 
 
@@ -479,6 +538,7 @@ def build_connectors(fetcher: PoliteFetcher, settings, names: list[str] | None =
 
     key = get_secret("YOUTUBE_API_KEY")
     token = get_secret(GitHubConnector.TOKEN_ENV)
+    web_key = get_secret(WebSearchConnector.KEY_ENV)
     out: list[Connector] = []
     for name in names or list(CONNECTORS):
         if name == "youtube":
@@ -495,6 +555,15 @@ def build_connectors(fetcher: PoliteFetcher, settings, names: list[str] | None =
             elif names:
                 raise ConnectorError("github: set discovery.github_enabled: true first (no API key needed, "
                                      "but unauthenticated search is limited to 60 requests/hour)")
+            continue
+        if name == "web":
+            # The blog/news channel. Joins only when it has a key, because every call is billed.
+            if settings.discovery.web_enabled and web_key:
+                out.append(WebSearchConnector(fetcher, settings.discovery.contact_email, api_key=web_key,
+                                              include_domains=settings.discovery.web_include_domains))
+            elif names:
+                raise ConnectorError(f"web: set the {WebSearchConnector.KEY_ENV} environment variable first "
+                                     "(a search API key is required)")
             continue
         out.append(CONNECTORS[name](fetcher, settings.discovery.contact_email))
     return out

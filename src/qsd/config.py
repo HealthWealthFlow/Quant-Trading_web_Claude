@@ -132,6 +132,12 @@ class Discovery(BaseModel):
     github_enabled: bool = False
     github_results_per_query: int = Field(5, gt=0, le=30)
     github_min_stars: int = Field(0, ge=0)  # raise to keep only repos with some community signal
+    # Blogs, broker research and Substacks via a search API (Firecrawl; FIRECRAWL_API_KEY). This is the channel
+    # academic connectors cannot reach: papers rarely describe retail technical-analysis setups, and many are
+    # paywalled. Every call is billed, so it joins a run only when enabled AND a key is present.
+    web_enabled: bool = True
+    web_results_per_query: int = Field(10, gt=0, le=20)
+    web_include_domains: list[str] = Field(default_factory=list)  # empty = the whole web
 
 
 DEFAULT_IDEA_WEIGHTS = {

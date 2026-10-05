@@ -50,6 +50,7 @@ OFFICIAL_API_ENDPOINTS = {
 OFFICIAL_API_PREFIXES = {
     ("api.github.com", "/repos/"),      # repository metadata + README
     ("api.github.com", "/search/"),     # repository search
+    ("api.firecrawl.dev", "/v1/search"),  # web search: the blog/news channel (POST, metadata only)
 }
 
 
@@ -200,8 +201,9 @@ class PoliteFetcher:
         finally:
             self._client.cookies.clear()
 
-    def _stream(self, url: str, headers: dict[str, str]) -> tuple[httpx.Response, bytes]:
-        with self._client.stream("GET", url, headers=headers) as r:
+    def _stream(self, url: str, headers: dict[str, str], body: bytes | None = None) -> tuple[httpx.Response, bytes]:
+        method = "POST" if body is not None else "GET"
+        with self._client.stream(method, url, headers=headers, content=body) as r:
             declared = r.headers.get("content-length")
             if declared and declared.isdigit() and int(declared) > self.max_bytes:
                 raise _TooLarge(int(declared))
@@ -217,10 +219,14 @@ class PoliteFetcher:
 
     # -- public ---------------------------------------------------------------------------------------
 
-    def fetch(self, url: str, official_api: bool = False, extra_headers: dict[str, str] | None = None
-              ) -> FetchResponse:
+    def fetch(self, url: str, official_api: bool = False, extra_headers: dict[str, str] | None = None,
+              post_body: bytes | None = None) -> FetchResponse:
         """`extra_headers` carry credentials such as an API key (never put keys in URLs: URLs are logged and
-        cached). Responses to such requests are never cached."""
+        cached). Responses to such requests are never cached.
+
+        A request with a `post_body` is sent as POST and is never retried: a search API bills per call, so a
+        retry could be charged twice for the same query.
+        """
         try:
             canonical = canonicalize_url(url)
         except InvalidURLError as e:
@@ -253,12 +259,13 @@ class PoliteFetcher:
             if cached[0].get("last_modified"):
                 headers["If-Modified-Since"] = cached[0]["last_modified"]
 
-        for attempt in range(self.max_retries + 1):
+        attempts = 1 if post_body is not None else self.max_retries + 1
+        for attempt in range(attempts):
             resp.attempts = attempt + 1
             self.limiter.wait_turn(host)
             self._host_counts[host] = self._host_counts.get(host, 0) + 1
             try:
-                r, body = self._stream(canonical, headers)
+                r, body = self._stream(canonical, headers, post_body)
             except _TooLarge as e:
                 resp.access_status, resp.error = AccessStatus.ERROR, f"TOO_LARGE: {e.size} bytes > {self.max_bytes}"
                 return resp

@@ -636,7 +636,7 @@ def _cmd_notes(args: argparse.Namespace) -> int:
     init_db(engine)
     try:
         rep = export_notes(engine, s, campaign_id=args.campaign, idea_ids=args.idea or None,
-                           notes_dir=Path(args.dir) if args.dir else None)
+                           notes_dir=Path(args.dir) if args.dir else None, group_by=args.group_by)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -773,6 +773,8 @@ def build_parser() -> argparse.ArgumentParser:
     no.add_argument("--dir", help="vault folder (default: export.notes_dir in config/local.yaml)")
     no.add_argument("--campaign", type=int, help="only ideas from this campaign")
     no.add_argument("--idea", type=int, action="append", default=[], help="only this idea (repeatable)")
+    no.add_argument("--group-by", choices=["family", "asset", "none"], default="family",
+                    help="subfolder to file each strategy under (default: its strategy family)")
     no.add_argument("--db", help="database path or SQLAlchemy URL")
     no.set_defaults(func=_cmd_notes)
     rs = sub.add_parser("research", help="guided research: describe what to find, then everything runs with a live "
