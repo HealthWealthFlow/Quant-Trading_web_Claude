@@ -427,7 +427,7 @@ def _cmd_queue(args: argparse.Namespace) -> int:
     from sqlalchemy import select
 
     from .db.models import Idea
-    from .packaging import submit_to_queue
+    from .packaging import submit_to_queue, withdraw_from_queue
     from .taxonomy import IdeaStatus
 
     s = load_settings()
@@ -455,6 +455,11 @@ def _cmd_queue(args: argparse.Namespace) -> int:
         pending = s.resolve_path(s.handoff.queue_dir) / "pending"
         for p in sorted(pending.glob("*.json")) if pending.exists() else []:
             print(p.name)
+        return 0
+    if args.withdraw:
+        for i in args.withdraw:
+            ok, moved, why = withdraw_from_queue(engine, s, i)
+            print(f"idea {i}: " + (f"withdrawn -> {moved}" if ok else f"NOT withdrawn: {why}"))
         return 0
     if args.submit_ready:
         with session_scope(engine) as sess:
@@ -723,6 +728,8 @@ def build_parser() -> argparse.ArgumentParser:
     qq.add_argument("--list", action="store_true", help="list pending packages")
     qq.add_argument("--why", action="store_true", help="show why each PROMISING / RESEARCHING idea is or is not "
                                                        "eligible, with a tally of blocking reasons")
+    qq.add_argument("--withdraw", type=int, action="append", default=[],
+                    help="take a queued idea back out of pending/ (repeatable); it returns to NEEDS_REVIEW")
     qq.add_argument("--db", help="database path or SQLAlchemy URL")
     qq.set_defaults(func=_cmd_queue)
     wb = sub.add_parser("web", help="start the read-only dashboard (default http://127.0.0.1:8877/)")

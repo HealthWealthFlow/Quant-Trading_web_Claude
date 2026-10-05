@@ -9,7 +9,8 @@ from .package import (
     handoff_report,
     submit_to_queue,
     suitable_regimes,
+    withdraw_from_queue,
 )
 
 __all__ = ["DOWNSTREAM_WARNING", "ResearchPackage", "build_package", "export_schema", "handoff_check",
-           "handoff_report", "submit_to_queue", "suitable_regimes"]
+           "handoff_report", "submit_to_queue", "suitable_regimes", "withdraw_from_queue"]

@@ -291,8 +291,43 @@ def submit_to_queue(engine: Engine, settings: Settings, idea_id: int) -> tuple[b
 
 
 def export_schema(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write(path, json.dumps(ResearchPackage.model_json_schema(), indent=2))
     return path
+
+
+def withdraw_from_queue(engine: Engine, settings: Settings, idea_id: int, *,
+                        status: IdeaStatus = IdeaStatus.NEEDS_REVIEW) -> tuple[bool, Path | None, str]:
+    """Take a queued idea back out of <queue_dir>/pending/ and record why.
+
+    Submission was one-way: `submit_to_queue` sets SUBMITTED_TO_BACKTEST, which is a frozen status, so scoring
+    could no longer touch the idea and the package file stayed where the downstream system would collect it.
+    That matters as soon as an idea is queued and then found to be wrong (measured: three ideas from a
+    promotional transcript were queued before the rule that such a source must be reviewed existed).
+
+    The file is moved to `withdrawn/` rather than deleted, so the record of what was handed over survives, and
+    the status change is written to the idea's history. A withdrawn idea goes to NEEDS_REVIEW by default: a
+    person decided it must not proceed, so a person should decide what happens to it next.
+    """
+    pkg = build_package(engine, settings, idea_id)
+    queue = settings.resolve_path(settings.handoff.queue_dir)
+    path = queue / "pending" / f"{pkg.strategy_id}.json"
+    moved: Path | None = None
+    if path.exists():
+        archived = queue / "withdrawn" / path.name
+        archived.parent.mkdir(parents=True, exist_ok=True)
+        path.replace(archived)
+        moved = archived
+    with session_scope(engine) as s:
+        idea = s.get(Idea, idea_id)
+        if idea.status is IdeaStatus.SUBMITTED_TO_BACKTEST:
+            s.add(IdeaStatusHistory(idea_id=idea.id, from_status=idea.status, to_status=status,
+                                    reason=f"withdrawn from the backtest queue (package {pkg.strategy_id}); "
+                                           "a person must decide what happens next"))
+            idea.status = status
+    if moved is None:
+        return False, None, "no package file was pending for this idea"
+    return True, moved, ""
 
 
 def suitable_regimes(pkg: ResearchPackage) -> list[str]:

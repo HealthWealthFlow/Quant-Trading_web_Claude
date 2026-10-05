@@ -95,6 +95,30 @@ def test_submit_eligible_idea_writes_queue_file(env):
     assert list((tmp / "queue" / "pending").glob("*.tmp")) == []  # atomic write left no temp files
 
 
+def test_a_queued_idea_can_be_withdrawn_and_goes_back_to_review(env):
+    """Submission is reversible: the package leaves pending/ without being destroyed, and a person decides
+    what happens to the idea next."""
+    from qsd.packaging import withdraw_from_queue
+
+    s, e, tmp = env
+    iid = make(e)
+    score_idea(e, s, iid)
+    ok, path, _ = submit_to_queue(e, s, iid)
+    assert ok and path.exists()
+
+    done, moved, why = withdraw_from_queue(e, s, iid)
+    assert done and why == ""
+    assert not path.exists()                      # nothing left for the downstream system to collect
+    assert moved is not None and moved.exists()   # the record of what was handed over survives
+    assert moved.parent.name == "withdrawn"
+    with session_scope(e) as sess:
+        assert sess.get(Idea, iid).status is IdeaStatus.NEEDS_REVIEW
+
+    # Withdrawing again is a no-op that says so, rather than an error or a silent success.
+    again, _, why2 = withdraw_from_queue(e, s, iid)
+    assert again is False and "no package file" in why2
+
+
 def test_ineligible_ideas_blocked_with_reasons(env):
     """An idea whose entry the source never stated cannot be handed over: there would be nothing of the
     source left to test, however complete the rest of its fields look."""
