@@ -101,6 +101,13 @@ discovery:
     - {name: Papers With Backtest, url: "https://paperswithbacktest.com/"}
     - {name: Quantpedia, url: "https://quantpedia.com/"}
     - {name: AQR Research, url: "https://www.aqr.com/", kind: sitemap, path: "/insights/"}
+    - {name: Cboe Insights, url: "https://www.cboe.com/", kind: sitemap, path: "/insights/"}
+    - {name: tastylive, url: "https://www.tastylive.com/"}
+    - {name: Moontower, url: "https://moontower.ai/"}
+    - {name: QuantConnect, url: "https://www.quantconnect.com/"}
+    # SSRN has no public feed and may refuse automated access; it is listed so `qsd sites` shows what happens.
+    # Many SSRN papers also arrive through the OpenAlex and Crossref searches.
+    - {name: SSRN, url: "https://www.ssrn.com/"}
 
 scoring:
   # Idea quality weights (spec §52); must sum to 100.

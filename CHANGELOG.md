@@ -2,7 +2,7 @@
 
 ## Automatic website search (D50) (2026-10-11)
 - New `discovery.sites` list (default: Quantocracy, Alpha Architect, Robot Wealth, QuantStart, Allocate Smartly,
-  Papers With Backtest, Quantpedia, AQR Research). Each site is read through its RSS/Atom feed (found from the page) or
+  Papers With Backtest, Quantpedia, AQR Research, Cboe Insights, tastylive, Moontower, QuantConnect, SSRN). Each site is read through its RSS/Atom feed (found from the page) or
   its XML sitemap; robots.txt applies; a site with neither is reported and skipped. They join every research, harvest
   and campaign run automatically (`sites_enabled`), or alone with `qsd discover --connector sites`.
 - `qsd sites [query]` tries every configured site on your PC (no AI cost): how it was read, how many items, what a
