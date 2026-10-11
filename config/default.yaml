@@ -94,20 +94,17 @@ discovery:
   sites_enabled: true
   sites:
     - {name: Quantocracy, url: "https://quantocracy.com/"}
-    - {name: Alpha Architect, url: "https://alphaarchitect.com/"}
     - {name: Robot Wealth, url: "https://robotwealth.com/"}
-    - {name: QuantStart, url: "https://www.quantstart.com/"}
     - {name: Allocate Smartly, url: "https://allocatesmartly.com/"}
-    - {name: Papers With Backtest, url: "https://paperswithbacktest.com/"}
+    - {name: Papers With Backtest, url: "https://paperswithbacktest.com/", path: "/strategies/"}
     - {name: Quantpedia, url: "https://quantpedia.com/"}
     - {name: AQR Research, url: "https://www.aqr.com/", kind: sitemap, path: "/insights/"}
-    - {name: Cboe Insights, url: "https://www.cboe.com/", kind: sitemap, path: "/insights/"}
-    - {name: tastylive, url: "https://www.tastylive.com/"}
     - {name: Moontower, url: "https://moontower.ai/"}
-    - {name: QuantConnect, url: "https://www.quantconnect.com/"}
-    # SSRN has no public feed and may refuse automated access; it is listed so `qsd sites` shows what happens.
-    # Many SSRN papers also arrive through the OpenAlex and Crossref searches.
-    - {name: SSRN, url: "https://www.ssrn.com/"}
+    - {name: QuantConnect, url: "https://www.quantconnect.com/", path: "/research/"}
+    # Tried on the user's PC with `qsd sites` and left out: Alpha Architect (serves a CAPTCHA page), QuantStart
+    # (robots.txt forbids automated reading), Cboe (no sitemap at the usual address), SSRN (access restricted) and
+    # tastylive (its matches were daily market commentary, not strategies). None of them can be read automatically;
+    # paste a page into sources.txt or save it as a PDF if you want one.
 
 scoring:
   # Idea quality weights (spec §52); must sum to 100.

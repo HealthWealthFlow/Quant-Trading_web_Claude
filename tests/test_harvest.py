@@ -13,6 +13,8 @@ from qsd.db import init_db, make_engine, session_scope
 from qsd.db.models import Campaign, Idea
 from qsd.taxonomy import CampaignStatus, IdeaStatus
 
+QUEUED = IdeaStatus.SUBMITTED_TO_BACKTEST  # stands in for an idea that counts toward the target
+
 # The real runner always carries a real Settings; the loop deep-copies it to set a per-round search allowance.
 TEST_SETTINGS = load_settings(DEFAULT_CONFIG, None, environ={})
 
@@ -64,8 +66,8 @@ def engine_for(tmp_path):
 
 def test_harvest_stops_as_soon_as_the_target_is_met(tmp_path):
     engine = engine_for(tmp_path)
-    runner = ScriptedRunner(engine, [{"promising": [IdeaStatus.PROMISING]},
-                                     {"promising": [IdeaStatus.PROMISING, IdeaStatus.PROMISING]}])
+    runner = ScriptedRunner(engine, [{"promising": [IdeaStatus.SUBMITTED_TO_BACKTEST]},
+                                     {"promising": [QUEUED, QUEUED]}])
     rep = run_harvest(runner, request="breakout strategies", target=3, max_rounds=9)
     assert rep.rounds == 2 and rep.reached == 3 and rep.target_met
     assert rep.stop_reason.startswith("TARGET_REACHED")
@@ -98,7 +100,7 @@ def test_a_round_that_found_nothing_is_retried_with_a_wider_search(tmp_path):
     engine = engine_for(tmp_path)
     runner = ScriptedRunner(engine, [
         {"docs": 0, "stop_reason": "NO_NEW_SOURCES: searches returned nothing new (low yield, spec §44)"},
-        {"docs": 2, "promising": [IdeaStatus.PROMISING]},
+        {"docs": 2, "promising": [IdeaStatus.SUBMITTED_TO_BACKTEST]},
     ])
     rep = run_harvest(runner, request="x", target=1, max_rounds=3, stall_rounds=9, empty_round_limit=9)
     assert runner.runs == 2 and rep.target_met, "the second round must be allowed to search with a wider plan"
@@ -143,7 +145,7 @@ def test_a_round_that_reads_documents_is_not_treated_as_empty(tmp_path):
 
 def test_harvest_respects_the_round_limit(tmp_path):
     engine = engine_for(tmp_path)
-    runner = ScriptedRunner(engine, [{"promising": [IdeaStatus.PROMISING]}] * 4)
+    runner = ScriptedRunner(engine, [{"promising": [IdeaStatus.SUBMITTED_TO_BACKTEST]}] * 4)
     rep = run_harvest(runner, request="x", target=99, max_rounds=4, stall_rounds=99)
     assert rep.rounds == 4 and not rep.target_met
     assert rep.stop_reason.startswith("MAX_ROUNDS")
@@ -154,7 +156,7 @@ def test_harvest_sleeps_through_a_daily_budget_stop_and_resumes(tmp_path):
     engine = engine_for(tmp_path)
     runner = ScriptedRunner(engine, [
         {"stop_reason": "BUDGET: budget exhausted: ai_cost_usd_per_day (limit 1.0)"},
-        {"promising": [IdeaStatus.PROMISING]},
+        {"promising": [IdeaStatus.SUBMITTED_TO_BACKTEST]},
     ])
     slept: list[float] = []
     rep = run_harvest(runner, request="x", target=1, max_rounds=3, sleep=lambda s: slept.append(s),
@@ -188,7 +190,7 @@ def test_a_spent_search_allowance_does_not_end_the_campaign(tmp_path):
     engine = engine_for(tmp_path)
     runner = ScriptedRunner(engine, [
         {"stop_reason": "BUDGET: budget exhausted: search_requests (limit 100.0)"},
-        {"promising": [IdeaStatus.PROMISING]},
+        {"promising": [IdeaStatus.SUBMITTED_TO_BACKTEST]},
     ])
     rep = run_harvest(runner, request="x", target=1, max_rounds=3, stall_rounds=9, empty_round_limit=9)
     assert runner.runs == 2, "the campaign must continue past a spent search allowance"
@@ -211,13 +213,13 @@ def test_harvest_stops_on_a_config_error_and_on_a_dead_end(tmp_path):
 def test_harvest_counts_distinct_ideas_not_duplicates(tmp_path):
     """Re-reading one paper must not inflate the target: identical fingerprints count once."""
     engine = engine_for(tmp_path)
-    runner = ScriptedRunner(engine, [{"promising": [IdeaStatus.PROMISING, IdeaStatus.PROMISING]}])
+    runner = ScriptedRunner(engine, [{"promising": [QUEUED, QUEUED]}])
 
     def run_with_same_fingerprint(cid: int, extra_queries=None) -> CampaignReport:
         runner.runs += 1
         with session_scope(engine) as s:
             for n in range(2):
-                s.add(Idea(campaign_id=cid, strategy_name=f"dupe {n}", status=IdeaStatus.PROMISING,
+                s.add(Idea(campaign_id=cid, strategy_name=f"dupe {n}", status=IdeaStatus.SUBMITTED_TO_BACKTEST,
                            fingerprint="same-paper", search_depth_level=0))
             s.get(Campaign, cid).status = CampaignStatus.COMPLETED
         return CampaignReport(campaign_id=cid, status="COMPLETED", stop_reason=None, spec={},
@@ -275,6 +277,28 @@ def test_promising_ideas_ignores_other_statuses(tmp_path):
     assert len(promising_ideas(engine, cid)) == 2
 
 
+def test_target_counts_only_ideas_that_can_be_handed_over(tmp_path, monkeypatch):
+    """Since D52 any runnable setup is READY_FOR_FORMALIZATION whatever its quality: the status alone must not
+    satisfy a harvest target (measured: ~20 such ideas, 0 eligible)."""
+    from qsd.campaign import promising_ideas
+
+    engine = engine_for(tmp_path)
+    with session_scope(engine) as s:
+        c = Campaign(request_text="x", state={"phases_done": []})
+        s.add(c)
+        s.flush()
+        cid = c.id
+        for name, status in (("blocked ready", IdeaStatus.READY_FOR_FORMALIZATION),
+                             ("eligible ready", IdeaStatus.READY_FOR_FORMALIZATION),
+                             ("blocked promising", IdeaStatus.PROMISING),
+                             ("queued", IdeaStatus.SUBMITTED_TO_BACKTEST)):
+            s.add(Idea(campaign_id=cid, strategy_name=name, status=status, search_depth_level=0))
+    monkeypatch.setattr("qsd.packaging.handoff_report", lambda e, st, statuses=None: [
+        {"idea_id": 1, "eligible": False}, {"idea_id": 2, "eligible": True}, {"idea_id": 3, "eligible": False}])
+    assert sorted(promising_ideas(engine, cid, TEST_SETTINGS)) == [2, 4]  # eligible + already queued
+    assert len(promising_ideas(engine, cid)) == 4  # without settings the status alone decides (old behaviour)
+
+
 def test_harvest_requires_exactly_one_of_request_or_resume(tmp_path):
     engine = engine_for(tmp_path)
     runner = ScriptedRunner(engine, [])
@@ -286,7 +310,7 @@ def test_harvest_requires_exactly_one_of_request_or_resume(tmp_path):
 
 def test_harvest_resumes_an_existing_campaign_without_creating_one(tmp_path):
     engine = engine_for(tmp_path)
-    runner = ScriptedRunner(engine, [{"promising": [IdeaStatus.PROMISING]}])
+    runner = ScriptedRunner(engine, [{"promising": [IdeaStatus.SUBMITTED_TO_BACKTEST]}])
     with session_scope(engine) as s:
         c = Campaign(request_text="original", state={"phases_done": ["discover"]},
                      status=CampaignStatus.COMPLETED)

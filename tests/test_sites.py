@@ -49,7 +49,7 @@ def site_handler(seen=None, feed_at="/blog/rss.xml", sitemap=False):
             return httpx.Response(200, content=HOME, headers={"content-type": "text/html"})
         if p == feed_at:
             return httpx.Response(200, content=FEED, headers={"content-type": "application/rss+xml"})
-        if p == "/sitemap.xml":
+        if p == "/sitemap.xml" and sitemap:
             return httpx.Response(200, content=SITEMAP, headers={"content-type": "application/xml"})
         return httpx.Response(404)
     return handler
@@ -167,3 +167,27 @@ def _settings_with_sites(tmp_path):
     s.discovery.sites = [SiteSource(name="Blog", url="https://blog.example/"),
                          SiteSource(name="Nowhere", url="https://nowhere.example/")]
     return s
+
+
+def test_a_short_feed_is_extended_with_older_posts_from_the_sitemap(tmp_path):
+    sitemap = (b'<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+               b"<url><loc>https://blog.example/momentum-and-trend-following-in-etfs/</loc></url>"
+               b"<url><loc>https://blog.example/p1</loc></url><url><loc>https://blog.example/about</loc></url></urlset>")
+
+    def handler(req: httpx.Request):
+        if req.url.path == "/robots.txt":
+            return httpx.Response(200, content=b"User-agent: *\nAllow: /\n")
+        if req.url.path == "/":
+            return httpx.Response(200, content=HOME, headers={"content-type": "text/html"})
+        if req.url.path == "/blog/rss.xml":
+            return httpx.Response(200, content=FEED, headers={"content-type": "application/rss+xml"})
+        if req.url.path == "/sitemap.xml":
+            return httpx.Response(200, content=sitemap, headers={"content-type": "application/xml"})
+        return httpx.Response(404)
+
+    f, _ = fetcher(handler, tmp_path)
+    conn = SiteConnector(f, SiteSource(name="Blog", url="https://blog.example/"))
+    urls = [c.url for c in conn.search("momentum trend following", limit=10)]
+    assert urls == ["https://blog.example/momentum-and-trend-following-in-etfs/"]  # an older post, from the sitemap
+    assert "https://blog.example/p1" not in [c.url for c in conn.items() if c.work_type == "web-page"]  # not twice
+    assert "1 archive page(s)" in conn.resolved_via  # one-word addresses ("about") are not archive posts
