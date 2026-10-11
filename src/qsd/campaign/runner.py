@@ -24,6 +24,7 @@ from ..discovery.queries import ASSET_WORDS, REGIME_TERMS, expand_query, normali
 from ..fetch.client import PoliteFetcher
 from ..fetch.enrich import enrich_source
 from ..fetch.pipeline import apply_result
+from ..fetch.urls import host_of
 from ..fetch.youtube import CAPTION_FACT, Transcript, TranscriptError, fetch_transcript
 from ..handlers import parse_bytes, parse_file
 from ..scoring import score_idea
@@ -126,6 +127,26 @@ def _evidence_hits(text: str) -> int:
     """How many distinct robustness/validation signals the text itself claims."""
     t = text.lower()
     return sum(1 for term in EVIDENCE_TERMS if term in t)
+
+
+_REFUSED = (AccessStatus.ACCESS_RESTRICTED, AccessStatus.PAYWALLED, AccessStatus.ROBOTS_DISALLOWED,
+            AccessStatus.MANUAL_ACCESS_REQUIRED, AccessStatus.PRIVATE_ACCESS_REQUIRED)
+
+
+def _refusing_hosts(s) -> set[str]:
+    """Hosts that have turned the fetcher away and never once let it read a page (D62).
+
+    Measured live: a round's six slots went to four papers on hosts that answered `access_restricted` or
+    `robots_disallowed`, and the next round would have picked the same hosts again. A host that has served at least one
+    page is not listed, because a publisher may block some pages and not others.
+    """
+    refused: set[str] = set()
+    opened: set[str] = set()
+    for status, url in s.execute(select(Source.access_status, Source.url).where(
+            Source.access_status.in_((*_REFUSED, AccessStatus.OK)), Source.url.is_not(None))):
+        host = host_of(url)
+        (opened if status is AccessStatus.OK else refused).add(host)
+    return refused - opened
 
 
 def _looks_free(src, facts: dict, seeded: bool = False) -> bool:
@@ -283,6 +304,7 @@ class CampaignRunner:
         with session_scope(self.engine) as s:
             rows = s.scalars(select(Source).where(Source.campaign_id == cid,
                                                   Source.access_status == AccessStatus.NOT_FETCHED)).all()
+            refusing = _refusing_hosts(s)
             ranked = []
             for src in rows:
                 if src.id in done:
@@ -304,11 +326,12 @@ class CampaignRunner:
                 rel = _relevance(text, terms)
                 evidence = _evidence_hits(text)
                 free = _looks_free(src, facts, seeded)
+                refused = bool(refusing) and host_of(target) in refusing  # this host already turned us away (D62)
                 # readable-for-free first, then relevance, then TIER, then reported robustness evidence as the final
                 # tie-break. Evidence must not outrank tier: `expected_robustness` scores 0.00 on almost every idea
                 # measured, so a source that reports out-of-sample/replication testing is worth reading before an
                 # equally-ranked one — but a tier-4 blog must never displace a tier-1 paper (docs/GATE_CALIBRATION.md).
-                ranked.append((0 if free else 1, -rel, src.tier or 9, -evidence, src.id, target))
+                ranked.append((2 if refused else (0 if free else 1), -rel, src.tier or 9, -evidence, src.id, target))
         ranked.sort()
         return [(sid, url) for *_k, sid, url in ranked[:self.limits.docs_per_round]]
 

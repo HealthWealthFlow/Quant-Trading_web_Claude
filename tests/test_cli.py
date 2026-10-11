@@ -63,3 +63,19 @@ def test_reground_cli_rereads_local_file_and_rescores(tmp_path, capsys):
     pdf.write_bytes(make_pdf(PAGES[:2]))  # document changed → refuse to re-ground against different text
     assert main(["reground", "--db", db]) == 0
     assert "document changed since extraction" in capsys.readouterr().out
+
+
+def test_queue_list_shows_scores_and_flags_duplicate_packages(tmp_path, capsys, monkeypatch):
+    import json
+
+    from qsd.cli import main
+
+    monkeypatch.setenv("QSD_HANDOFF__QUEUE_DIR", str(tmp_path / "q"))
+    pending = tmp_path / "q" / "pending"
+    pending.mkdir(parents=True)
+    for name, norm in (("QSD-000001-aaaa.json", 61.7), ("QSD-000001-bbbb.json", 64.4), ("QSD-000020-cccc.json", 78.1)):
+        (pending / name).write_text(json.dumps({"strategy_name": "x", "scores": {
+            "idea_quality_normalized": norm, "formalization_completeness": 90}}), encoding="utf-8")
+    assert main(["queue", "--list", "--db", str(tmp_path / "d.sqlite")]) == 0
+    out = capsys.readouterr().out
+    assert "normalized  78.1" in out and "3 package(s) pending; more than one file for idea(s) 000001" in out

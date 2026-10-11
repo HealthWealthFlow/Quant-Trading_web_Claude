@@ -1,5 +1,12 @@
 # Changelog
 
+## First real run: refusing hosts and the url cap (D62) (2026-10-11)
+- `find_strategy_ideas.bat` with target 3 ran end to end ($0.07, 7 new ideas, none promising). It exposed two defects:
+  read slots wasted on hosts that had already refused access, and a 300-page candidate cap that one round of eight
+  websites used up. Selection now puts refusing hosts last; the cap is 3000.
+- `qsd queue --list` shows normalized score, completeness and name per package, and flags ideas that have more than one
+  package file (idea 1 has two).
+
 ## Website pages are actually read (D61) (2026-10-11)
 - `qsd sites momentum` on a real PC: all eight configured sites work (Quantocracy, Robot Wealth, Allocate Smartly,
   Papers With Backtest, Quantpedia, AQR, Moontower, QuantConnect), each returning relevant pages.

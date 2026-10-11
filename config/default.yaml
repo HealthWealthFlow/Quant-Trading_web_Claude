@@ -40,7 +40,9 @@ budgets:                    # Hard caps; the pipeline stops a campaign when any 
   # A real round spends ~40 searches on discovery and ~60 on replication/contradiction searches for four ideas,
   # so 100 was exhausted by a single round. `qsd harvest` re-allowances this per round.
   max_search_requests_per_campaign: 300
-  max_urls_per_campaign: 300
+  # 3000, not 300 (D62): this counts candidate pages *stored* (a database row each, nothing fetched). With eight
+  # websites joining every search, one round stored 290 and the harvest stopped in round 2 on this cap.
+  max_urls_per_campaign: 3000
   max_documents_per_campaign: 150
   max_sources_per_domain: 25
   max_runtime_minutes_per_campaign: 60
