@@ -25,7 +25,8 @@ from .connectors import _SAFE_XML, Candidate, Connector, ConnectorError, FeedCon
 
 FALLBACK_FEED_PATHS = ("feed/", "feed", "rss", "rss.xml", "atom.xml", "index.xml")
 FEED_LINK_TYPES = ("application/rss+xml", "application/atom+xml")
-MAX_SITEMAP_URLS = 5000
+MAX_SITEMAP_URLS = 20000
+FULL_FEED_ITEMS = 50  # a feed this long may be the whole archive; a shorter one lists only the latest posts
 MAX_CHILD_SITEMAPS = 5
 _PREFERRED_CHILD = ("post", "blog", "insight", "article", "research", "paper", "strateg")
 _STOP = {"trading", "strategy", "strategies", "the", "and", "for", "with", "from", "using", "that", "this", "based",
@@ -52,6 +53,7 @@ class SiteConnector(Connector):
         self.site = site
         self.name = f"site:{host_of(site.url)}"[:40]
         self.resolved_via: str | None = None
+        self.archive_items = 0
         self._items: list[Candidate] | None = None
         self._error: ConnectorError | None = None
 
@@ -84,7 +86,7 @@ class SiteConnector(Connector):
             except ConnectorError:
                 continue
             if items:
-                return self._remember(url, items)
+                return self._remember(url, items + self._archive(items))
         sitemap = urljoin(site.url, "/sitemap.xml")
         try:
             items = self._sitemap(sitemap)
@@ -95,8 +97,24 @@ class SiteConnector(Connector):
         raise ConnectorError("no RSS/Atom feed or sitemap found; put its feed address in discovery.sites "
                              "(kind: feed) or list the pages you want in sources.txt")
 
+    def _archive(self, feed_items: list[Candidate]) -> list[Candidate]:
+        """A feed lists only the latest posts; the sitemap lists the rest. Added when the feed is short, so a search
+        also reaches older posts (matched by the words in their address, which is rougher than a feed's text)."""
+        if len(feed_items) >= FULL_FEED_ITEMS:
+            return []
+        try:
+            extra = self._sitemap(urljoin(self.site.url, "/sitemap.xml"))
+        except ConnectorError:
+            return []
+        known = {c.url for c in feed_items}
+        out = [c for c in extra if c.url not in known and len(c.title.split()) >= 2]
+        if out:
+            self.archive_items = len(out)
+        return out
+
     def _remember(self, via: str, items: list[Candidate]) -> list[Candidate]:
-        self.resolved_via = via
+        self.resolved_via = via + (f" + {self.archive_items} archive page(s) from the sitemap"
+                                   if self.archive_items else "")
         return items
 
     @staticmethod

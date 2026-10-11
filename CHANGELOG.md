@@ -1,5 +1,11 @@
 # Changelog
 
+## Harvest target counts queueable ideas (D59); website list trimmed (D60) (2026-10-11)
+- A harvest no longer reports "target reached" for ideas that cannot be handed to the backtester: only ideas that are
+  already queued or pass every queue check count (`qsd queue --why` shows what blocks the rest).
+- Default website list after trying it on a real PC: removed Alpha Architect, QuantStart, Cboe, SSRN and tastylive;
+  path filters for Papers With Backtest and QuantConnect; short feeds are extended with older posts from the sitemap.
+
 ## Merge of `feat/setup-readiness` (D50–D57) with the website search (D58) (2026-10-11)
 - The live database had been upgraded to schema v6 by code that was never merged; `main` (v5) refused to open it.
   Merging brings `main` to v6: setup readiness and derived exits (D50–D52), promotional sources sent to review (D53),

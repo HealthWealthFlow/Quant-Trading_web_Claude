@@ -58,19 +58,34 @@ class HarvestReport:
                 "follow_up_queries": self.follow_up_queries, "round_reports": self.round_reports}
 
 
-def promising_ideas(engine, campaign_id: int) -> list[int]:
-    """Ideas from this campaign that cleared the gate, deduplicated by fingerprint."""
+def promising_ideas(engine, campaign_id: int, settings=None) -> list[int]:
+    """Ideas from this campaign that count toward the target, deduplicated by fingerprint.
+
+    With `settings`, only ideas that can actually be handed over count: already submitted, or passing every queue
+    check (D59). Without it the status alone decides (the old behaviour). Measured need: since D52 any runnable setup is
+    READY_FOR_FORMALIZATION whatever its quality, so 20 ideas could hold that status while 0 were eligible, and a
+    harvest could report "target reached" with nothing for the backtester.
+    """
     with session_scope(engine) as s:
         rows = s.scalars(select(Idea).where(Idea.campaign_id == campaign_id,
                                             Idea.status.in_(PROMISING_STATUSES))).all()
+        rows = [(r.id, r.status, r.fingerprint) for r in rows]
+    if settings is not None:
+        from ..packaging import handoff_report
+
+        waiting = [i for i, status, _ in rows if status is not IdeaStatus.SUBMITTED_TO_BACKTEST]
+        ok = {r["idea_id"] for r in handoff_report(engine, settings, [IdeaStatus.PROMISING,
+                                                                      IdeaStatus.READY_FOR_FORMALIZATION])
+              if r["eligible"] and r["idea_id"] in waiting}
+        rows = [r for r in rows if r[1] is IdeaStatus.SUBMITTED_TO_BACKTEST or r[0] in ok]
     seen: set[str] = set()
     out: list[int] = []
-    for idea in rows:
-        key = idea.fingerprint or f"idea:{idea.id}"
+    for idea_id, _status, fingerprint in rows:
+        key = fingerprint or f"idea:{idea_id}"
         if key in seen:
             continue
         seen.add(key)
-        out.append(idea.id)
+        out.append(idea_id)
     return out
 
 
@@ -156,7 +171,7 @@ def run_harvest(runner: CampaignRunner, request: str | None = None, campaign_id:
         if on_event is not None:
             on_event("harvest", message)
 
-    reached = promising_ideas(runner.engine, cid)
+    reached = promising_ideas(runner.engine, cid, runner.settings)
     report.reached = len(reached)
     empty_rounds = 0
     note(f"Harvest {cid}: target {target} promising idea(s); currently {report.reached}")
@@ -191,7 +206,7 @@ def run_harvest(runner: CampaignRunner, request: str | None = None, campaign_id:
         report.submitted += len(submitted)
         if submitted:
             note(f"Sent {len(submitted)} idea(s) to the backtest queue: {', '.join(map(str, submitted))}")
-        now_promising = promising_ideas(runner.engine, cid)
+        now_promising = promising_ideas(runner.engine, cid, runner.settings)
         report.round_reports.append({"round": report.rounds, "promising": len(now_promising),
                                      "ideas": len(rnd.ideas), "submitted": len(submitted),
                                      "stop_reason": rnd.stop_reason})
