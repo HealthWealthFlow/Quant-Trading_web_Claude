@@ -46,6 +46,10 @@ MIGRATIONS: dict[int, list[str]] = {
     # being hard-failed for lacking a bar-rule. Additive only: existing rows stay UNKNOWN (D38).
     4: ["ALTER TABLE ideas ADD COLUMN strategy_kind TEXT NOT NULL DEFAULT 'UNKNOWN'",
         "ALTER TABLE ideas ADD COLUMN algorithm_rule TEXT NOT NULL DEFAULT 'UNKNOWN'"],
+    # v6: a runnable setup for the backtester, kept separate from the grounded source values. Existing rows get
+    # empty JSON: absence of a setup means "not assembled yet", which is what every pre-v6 row is (D50).
+    5: ["ALTER TABLE ideas ADD COLUMN setup JSON NOT NULL DEFAULT '{}'",
+        "ALTER TABLE ideas ADD COLUMN fill_origins JSON NOT NULL DEFAULT '{}'"],
 }
 
 

@@ -2,12 +2,12 @@
 
 > Complete orientation for another AI model or harness (written for a DeepSeek-based harness taking over from Claude
 > Code) and for any developer. Read **§0 first** (where things stand and what to do next), then the rest as reference.
-> Also read `CLAUDE.md` (working rules), `DECISIONS.md` (why, D1–D50), `KNOWN_ISSUES.md`, `CHANGELOG.md` (what changed
+> Also read `CLAUDE.md` (working rules), `DECISIONS.md` (why, D1–D58), `KNOWN_ISSUES.md`, `CHANGELOG.md` (what changed
 > when, newest first) and `docs/GATE_CALIBRATION.md` (the score arithmetic and the 2026-10-04 re-measurement).
 > Section numbers like "§84" refer to the requirements in `docs/MASTER_SPEC.md`.
 >
-> **Updated 2026-10-05** · `main` at the merge of PR #17 (`12c6390`) · **273 tests passing**, `ruff check .` clean ·
-> DB schema **v5** · package v1.2 · prompts **a1 / b5 / c1** · quality gate **PROMISING = 70** (D48).
+> **Updated 2026-10-11** · `main` after the merge of the website search (D58) and `feat/setup-readiness` (D50–D57) · **300 tests passing**, `ruff check .` clean ·
+> DB schema **v6** · package v1.2 · prompts **a1 / b5 / c1** · quality gate **PROMISING = 70** (D48), but see §0.8: since D52 the gate no longer decides what reaches the backtest queue.
 > Older text in this file that disagrees with `DECISIONS.md` or `CHANGELOG.md` is out of date; those two win.
 
 ---
@@ -138,6 +138,30 @@ Opening `data/qsd.sqlite` by *copying the file* can miss recent commits held in 
   scoring quirks (item 2) one at a time with before/after tables; (4) system-vs-component relation (item 4);
   (5) web search connector once the user provides a Brave/Tavily key; (6) YouTube playlist support.
 
+
+### 0.8 Merged on 2026-10-11: the `feat/setup-readiness` work (D50–D57) and what it changed
+Another agent working in the user's folder built eight commits on branch `feat/setup-readiness` (2026-10-05/06, pushed
+under the user's GitHub account) and ran them against the live database, which is why the live DB was at schema **v6**
+while `main` was at v5 (the code refuses a database newer than itself). It was merged with the website search (D58);
+all tests pass. What it did, in one line each: readiness separate from completeness (D50); derived exits and thin-source
+skipping (D51); **eligibility = a runnable setup** (D52); promotional sources go to review (D53); `queue --withdraw`
+(D54); the portable bridge bundle for the backtester (D55); a Firecrawl web-search channel and `find_strategy_ideas.bat`
+(D56); dashboard readiness (D57).
+
+Things the next maintainer must know:
+- **The PROMISING = 70 gate (D48) no longer decides what reaches the backtest queue.** Since D52 an idea whose entry rule
+  the source states and whose setup is runnable becomes `READY_FOR_FORMALIZATION` whatever its band, and the queue
+  floor is normalized ≥ 55, coverage ≥ 0.6, data availability ≥ 0.4. The band is now descriptive. Decide deliberately
+  whether that is the intended bar; it makes "do not lower the gate without measurement" moot for the queue.
+- **Derived values are labelled, not hidden.** `ideas` stays a faithful record of the source; `ideas.setup` holds what is
+  handed over, and `fill_origins` says SOURCE / DERIVED / DEFAULT / AI_SUGGESTED / UNRESOLVED for each value. Entry is
+  never derivable. A silent exit is derived (D51). The downstream system must treat non-SOURCE values as proposals.
+- `FIRECRAWL_API_KEY` (user environment) enables the paid web-search channel; it collects metadata only and every page is
+  still fetched through the polite fetcher.
+- Decision numbers D50–D57 were written into commit messages but not into `DECISIONS.md` by that agent; they were added
+  on the merge, from the commit messages. The website search (originally also numbered D50) is D58.
+- Free checks on the user's PC after the merge: `qsd queue --why`, `qsd score`, `qsd sites momentum`.
+
 ---
 
 ## 1. What this system is (and is not)
@@ -258,22 +282,23 @@ From the user (keep honouring these):
 | Path | Purpose |
 |---|---|
 | `research.bat` | Windows double-click entry: runs `qsd research` (guided wizard) |
+| `find_strategy_ideas.bat` | One-click: asks what to look for, harvests until the target or the daily budget, writes notes grouped by family into `strategy_ideas\`, exports the bridge bundle (D56); keys come from `tools\read_keys.ps1` |
 | `dashboard.bat` | Starts dashboard on 8877, opens browser; checks the port owner is QSD |
 | `sources.example.txt` | Template for the user's `sources.txt` (git-ignored) |
 | `config/default.yaml` | All defaults (see §12). Overrides: `config/local.yaml`, then `QSD_<SECTION>__<KEY>` env vars |
 | `schemas/research_package.schema.json` | JSON Schema of the package (contract with the Quant Auto OS); regenerate with `qsd package --schema` |
 | `docs/MASTER_SPEC.md` | Condensed requirements (§1–§137; §137 = market-direction grouping added by the user) |
-| `CLAUDE.md` | Rules for AI coding sessions; `PROJECT_STATE.json`, `CHECKPOINT.md`, `TODO.md`, `KNOWN_ISSUES.md`, `DECISIONS.md` (D1–D50), `CHANGELOG.md`, `ARCHITECTURE.md`, `README.md` |
+| `CLAUDE.md` | Rules for AI coding sessions; `PROJECT_STATE.json`, `CHECKPOINT.md`, `TODO.md`, `KNOWN_ISSUES.md`, `DECISIONS.md` (D1–D58), `CHANGELOG.md`, `ARCHITECTURE.md`, `README.md` |
 | `src/qsd/cli.py` | `qsd` command (argparse). All subcommands, see §13 |
 | `src/qsd/config.py` | Pydantic settings (`Settings`, `AIConfig`, `Budgets`, `Crawling`, `Discovery`, `Scoring`, `Handoff`, `Export`); `get_secret()` reads env only; `REPO_ROOT` |
 | `src/qsd/taxonomy.py` | Enums: `MarketRegime`, `RegimeSuitability`, `RegimeBasis`, `AssetClass`, `AccessStatus`, `IdeaStatus`, `RejectionReason`, `SourceRelation`, `IdeaSourceRole`, `CampaignStatus`, `ExtractionMethod`, `MissingValue`/`UNKNOWN`, `REGIME_LABELS` ("Long (uptrend)", "Short (downtrend)", "Consolidation (sideways)", "Crash (crisis)") |
 | `src/qsd/db/` | SQLAlchemy 2 models (`models.py`, `SCHEMA_VERSION = 4`), `make_engine` (SQLite WAL + busy_timeout), `init_db` with additive `MIGRATIONS`, `new_idea()` (creates 4 regime rows) |
 | `src/qsd/handlers/` | Format detection + parsers; `HandlerResult` (blocks with `Location`, tables, links, metadata, limitations, sha256 of bytes); PDF v3: re-reads glued-word pages and adds a pdfminer layout reading (`alt_blocks`, grounding only); safe ZIP limits |
 | `src/qsd/fetch/` | `PoliteFetcher` (robots RFC 9309, per-host rate limiter, backoff/Retry-After, cooldown, size cap, total-download deadline, no cookies, ETag cache, `extra_headers` never cached), `OFFICIAL_API_ENDPOINTS` allowlist, URL canonicalisation, access-barrier detection, `fetch_and_store` |
-| `src/qsd/discovery/` | `sites.py` (configured websites via RSS/Atom feed or sitemap, D50), Connectors (`ArxivConnector`, `OpenAlexConnector`, `CrossrefConnector`, `YouTubeConnector`, `FeedConnector`), `build_connectors()`, `run_discovery()` (search memory, budgets, `on_search` progress, video links), query families, tiering |
+| `src/qsd/discovery/` | `sites.py` (configured websites via RSS/Atom feed or sitemap, D58), `WebSearchConnector` in `connectors.py` (Firecrawl search, D56), Connectors (`ArxivConnector`, `OpenAlexConnector`, `CrossrefConnector`, `YouTubeConnector`, `FeedConnector`), `build_connectors()`, `run_discovery()` (search memory, budgets, `on_search` progress, video links), query families, tiering |
 | `src/qsd/ai/` | Providers (DeepSeek/OpenAI-compatible JSON mode; Anthropic SDK optional), `AIGateway` (cache, ledger, budgets), prompts (versioned), schemas, `sections.select_relevant`, grounding, `extract_ideas`, `reground_source` |
-| `src/qsd/scoring/` | Rules (red flags, hard fails, completeness, maturity, complexity), scores (source/evidence/idea quality, priority, gate band), dedupe/fingerprints/root evidence, `evidence.py` (whole-document evidence sentences, D42/D45), `score_idea` status pipeline |
-| `src/qsd/packaging/` | `ResearchPackage` (v1.2), `build_package`, `submit_to_queue` (handoff rule), schema export |
+| `src/qsd/scoring/` | `readiness.py` (setup readiness, derivable vs source-only components, thin-source skip; D50–D52), `pipeline.py` also holds the promotional-source review rule (D53), Rules (red flags, hard fails, completeness, maturity, complexity), scores (source/evidence/idea quality, priority, gate band), dedupe/fingerprints/root evidence, `evidence.py` (whole-document evidence sentences, D42/D45), `score_idea` status pipeline |
+| `src/qsd/packaging/` | `bridge.py` (portable bundle for the downstream backtester, D55);  `ResearchPackage` (v1.2), `build_package`, `submit_to_queue` (handoff rule), schema export |
 | `src/qsd/campaign/` | `parse.py` (request → spec), `runner.py` (`CampaignRunner`, `plan_queries`, progress `_note`, video/local reading, deepen), `seed.py` (`sources.txt` seeding), `harvest.py` (`run_harvest`: rounds until N distinct PROMISING ideas, budget-day sleep, `submit_eligible`), `directions.py` (self-directed follow-up queries from the campaign's own extracted ideas) |
 | `src/qsd/research.py` | Guided wizard (`run_wizard`), in-process dashboard start, cost estimate, summary, auto queue + notes export |
 | `src/qsd/sources_file.py` | `sources.txt` parser (`SourceItem`: youtube_video / youtube_channel / url / path, `| n:25`, `| title`) |
@@ -286,7 +311,7 @@ From the user (keep honouring these):
 
 ---
 
-## 7. Data model (SQLite, `data/qsd.sqlite`, schema v5)
+## 7. Data model (SQLite, `data/qsd.sqlite`, schema v6)
 
 | Table | Key contents |
 |---|---|
@@ -296,7 +321,7 @@ From the user (keep honouring these):
 | `source_links` | from → to, relation (`CITES` = video → linked paper/code, …) |
 | `fetch_log` | every retrieval (redacted): request_url, status, retrieval_method (`HTTP`, `CACHE`, `API_METADATA`, `LOCAL_FILE`), error |
 | `source_facts` | provenance: fact_type (`ABSTRACT`, `PDF_URL`, `ID_DOI`, `ID_YOUTUBE`, `TITLE_OVERRIDE`, `TRIAGE`, `EVIDENCE:<signal>` (whole-document evidence sentences with page), rule names, `PARAMETER:x`, `REGIME:x`, …), value, quote (≤300), page/slide/location, method, confidence |
-| `ideas` | strategy fields (instrument, universe, timeframe, signal, entry/exit/stop/take-profit rules, sizing, rebalance, holding period, costs, …), parameters JSON, unknown_rules, claimed_* (verbatim), economic_rationale, red_flags, scores (source/evidence/idea quality, completeness, complexity, replication, novelty, priority), status, hard_fail_reasons, fingerprint/dedupe, `strategy_kind` + `algorithm_rule` (v5: BAR_RULE / ALGORITHM / PORTFOLIO_WEIGHT / MACHINE_LEARNING), `score_details` JSON (v2; includes `evidence_sentences`), `grounding` JSON (v4: removed values with the AI's quote + reason, values offered, realigned) |
+| `ideas` | strategy fields (instrument, universe, timeframe, signal, entry/exit/stop/take-profit rules, sizing, rebalance, holding period, costs, …), parameters JSON, unknown_rules, claimed_* (verbatim), economic_rationale, red_flags, scores (source/evidence/idea quality, completeness, complexity, replication, novelty, priority), status, hard_fail_reasons, fingerprint/dedupe, `setup` + `fill_origins` (v6: the assembled runnable setup and the origin of each value, D50), `strategy_kind` + `algorithm_rule` (v5: BAR_RULE / ALGORITHM / PORTFOLIO_WEIGHT / MACHINE_LEARNING), `score_details` JSON (v2; includes `evidence_sentences`), `grounding` JSON (v4: removed values with the AI's quote + reason, values offered, realigned) |
 | `idea_regimes` | 4 rows per idea (BULLISH/BEARISH/CONSOLIDATION/CRASH): suitability, basis, confidence, source_fact_id |
 | `idea_sources` | idea ↔ source role (`DESCRIBES`, `SUPPORTS`, `REPLICATES`, `CONTRADICTS`, `ORIGINAL`) + note |
 | `idea_status_history`, `rejections` | audit trail; rejections never deleted |
@@ -306,7 +331,7 @@ From the user (keep honouring these):
 | `errors`, `local_files` | error records (redacted); local scan index |
 
 Migrations are **additive only** (`db/__init__.py: MIGRATIONS`): v1→2 `ideas.score_details`, v2→3 `campaigns.spec/state`,
-v3→4 `ideas.grounding`, v4→5 `ideas.strategy_kind` / `ideas.algorithm_rule`. `init_db` runs them automatically on every command.
+v3→4 `ideas.grounding`, v4→5 `ideas.strategy_kind` / `ideas.algorithm_rule`, v5→6 `ideas.setup` / `ideas.fill_origins`. A database newer than the code is refused with `SchemaVersionError` (the code never opens a future schema); the v6 migration also leaves a `data/qsd.sqlite.bak-v5` copy. `init_db` runs them automatically on every command.
 
 Other data on disk: `data/http_cache/` (sha256(url).json/.bin, never for credentialed requests),
 `data/backtest_queue/pending/<strategy_id>.json`, `logs/`.
@@ -461,7 +486,7 @@ canonicalised (tracking params removed); no credentials in URLs.
 second-opinion models, stage A/B char and token limits — B 40k chars / 8000 tokens, `prices`) · `budgets`
 (per day $1, month $20, campaign $2; AI calls 200, tokens 2M, searches 100, URLs 300, documents 150, per domain 25,
 runtime 60 min) · `crawling` (robots always on, rate, retries, timeout 30 s, 50 MB) · `exploration` · `quality_gate`
-(85 / **70** / 55) · `discovery` (sites_enabled + `sites` list, D50; contact_email, results_per_query 10, search_memory_days 30, youtube_enabled,
+(85 / **70** / 55) · `discovery` (sites_enabled + `sites` list, D58; `web_enabled` for the Firecrawl search, D56; contact_email, results_per_query 10, search_memory_days 30, youtube_enabled,
 youtube_results_per_query 10, youtube_max_links_per_video 5) · `scoring` (idea_weights, min_coverage_for_gate 0.6) ·
 `handoff` (60 / 55 / 0.6 / 0.4, queue_dir) · `export` (notes_dir, notes_subfolder "QSD Strategies").
 Secrets (env only): `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `YOUTUBE_API_KEY`.
@@ -473,7 +498,7 @@ Secrets (env only): `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `
 `campaign --resume ID` · `sources [--file] [--dry-run]` · `discover [query…] [--connector arxiv,openalex,crossref,
 youtube|all] [--asset] [--regime] [--force]` · `feed URL` · `fetch URL` · `parse FILE` · `scan [paths]` ·
 `extract FILE [--force-deep]` · `score [--idea]` · `reground [--source]` · `factcheck IDEA` · `package IDEA` /
-`package --schema PATH` · `queue --submit ID | --submit-ready | --list | --why` · `sites [query]` (try each configured website, no AI cost) · `notes [--dir] [--campaign] [--idea]` ·
+`package --schema PATH` · `queue --submit ID | --submit-ready | --list | --why | --withdraw ID` · `handoff --export` (bridge bundle in `data/handoff_bridge/`) · `notes --group-by {family|asset|none}` · `sites [query]` (try each configured website, no AI cost) · `notes [--dir] [--campaign] [--idea]` ·
 `web [--host] [--port]` · `queries [--asset] [--regime] [--expand]` · `db init|info` · `config` · `status`.
 Every DB command accepts `--db PATH`.
 
@@ -565,7 +590,7 @@ sources reporting robustness (tie-breaker) · D36 gate unchanged · D37 gate 70 
 for grounding · D42 whole-document evidence · D43 aligned quote must contain the value's numbers · D44 harvest submits to
 the queue, `queue --why` · D45 evidence precision (negations, future work) · D46 data availability for every bar-data
 class · D47 `reextract` in place · **D48 gate back to 70 (supersedes D37)** · D49 injection detector no longer flags bare
-"place a trade"; stale injection flags recomputed · D50 configured websites searched through feeds/sitemaps (`qsd sites`).
+"place a trade"; stale injection flags recomputed · D50 setup readiness (schema v6) · D51 derived exits, thin sources skipped · D52 eligibility = runnable setup · D53 promotional sources go to review · D54 `queue --withdraw` · D55 `handoff --export` bridge bundle · D56 web search channel + `find_strategy_ideas.bat` · D57 dashboard readiness · D58 configured websites searched through feeds/sitemaps (`qsd sites`).
 
 ---
 

@@ -451,7 +451,7 @@ def _cmd_queue(args: argparse.Namespace) -> int:
     from sqlalchemy import select
 
     from .db.models import Idea
-    from .packaging import submit_to_queue
+    from .packaging import submit_to_queue, withdraw_from_queue
     from .taxonomy import IdeaStatus
 
     s = load_settings()
@@ -480,6 +480,11 @@ def _cmd_queue(args: argparse.Namespace) -> int:
         for p in sorted(pending.glob("*.json")) if pending.exists() else []:
             print(p.name)
         return 0
+    if args.withdraw:
+        for i in args.withdraw:
+            ok, moved, why = withdraw_from_queue(engine, s, i)
+            print(f"idea {i}: " + (f"withdrawn -> {moved}" if ok else f"NOT withdrawn: {why}"))
+        return 0
     if args.submit_ready:
         with session_scope(engine) as sess:
             ids = list(sess.scalars(select(Idea.id).where(Idea.status.in_(
@@ -492,6 +497,26 @@ def _cmd_queue(args: argparse.Namespace) -> int:
     for i in ids:
         ok, path, reasons = submit_to_queue(engine, s, i)
         print(f"idea {i}: " + (f"queued -> {path}" if ok else "NOT queued: " + "; ".join(reasons)))
+    return 0
+
+
+def _cmd_handoff(args: argparse.Namespace) -> int:
+    from .packaging import export_bundle
+
+    s = load_settings()
+    engine = make_engine(_db_path(args))
+    init_db(engine)
+    if not args.export:
+        print("nothing to do (use --export to write the bundle)", file=sys.stderr)
+        return 2
+    out = s.resolve_path(args.out) if args.out else s.resolve_path(s.paths.data_dir) / "handoff_bridge"
+    result = export_bundle(engine, s, out, idea_ids=args.idea or None)
+    print(f"Bundle: {result.out_dir}")
+    print(f"  sources: {result.sources}   ideas: {result.ideas}")
+    print(f"  documents copied: {result.texts}   evidence digests: {result.digests}")
+    print("  import with the API calls in CONTRACT.md (this bundle never writes another system's database)")
+    for w in result.warnings:
+        print(f"  WARNING: {w}", file=sys.stderr)
     return 0
 
 
@@ -635,7 +660,7 @@ def _cmd_notes(args: argparse.Namespace) -> int:
     init_db(engine)
     try:
         rep = export_notes(engine, s, campaign_id=args.campaign, idea_ids=args.idea or None,
-                           notes_dir=Path(args.dir) if args.dir else None)
+                           notes_dir=Path(args.dir) if args.dir else None, group_by=args.group_by)
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -751,6 +776,14 @@ def build_parser() -> argparse.ArgumentParser:
     qq.add_argument("--list", action="store_true", help="list pending packages")
     qq.add_argument("--why", action="store_true", help="show why each PROMISING / RESEARCHING idea is or is not "
                                                        "eligible, with a tally of blocking reasons")
+    qq.add_argument("--withdraw", type=int, action="append", default=[],
+                    help="take a queued idea back out of pending/ (repeatable); it returns to NEEDS_REVIEW")
+    hx = sub.add_parser("handoff", help="build a portable bundle of ideas for the downstream backtester")
+    hx.add_argument("--export", action="store_true", help="write the bundle (sources, ideas, documents, contract)")
+    hx.add_argument("--out", help="output folder (default: data/handoff_bridge)")
+    hx.add_argument("--idea", type=int, action="append", default=[], help="only this idea (repeatable)")
+    hx.add_argument("--db", help="database path or SQLAlchemy URL")
+    hx.set_defaults(func=_cmd_handoff)
     qq.add_argument("--db", help="database path or SQLAlchemy URL")
     qq.set_defaults(func=_cmd_queue)
     wb = sub.add_parser("web", help="start the read-only dashboard (default http://127.0.0.1:8877/)")
@@ -768,6 +801,8 @@ def build_parser() -> argparse.ArgumentParser:
     no.add_argument("--dir", help="vault folder (default: export.notes_dir in config/local.yaml)")
     no.add_argument("--campaign", type=int, help="only ideas from this campaign")
     no.add_argument("--idea", type=int, action="append", default=[], help="only this idea (repeatable)")
+    no.add_argument("--group-by", choices=["family", "asset", "none"], default="family",
+                    help="subfolder to file each strategy under (default: its strategy family)")
     no.add_argument("--db", help="database path or SQLAlchemy URL")
     no.set_defaults(func=_cmd_notes)
     rs = sub.add_parser("research", help="guided research: describe what to find, then everything runs with a live "

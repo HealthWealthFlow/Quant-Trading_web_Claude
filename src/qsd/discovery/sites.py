@@ -1,4 +1,4 @@
-"""Searching chosen websites automatically (D50): blogs and research libraries from `discovery.sites`.
+"""Searching chosen websites automatically (D58): blogs and research libraries from `discovery.sites`.
 
 A site is read the way a person's feed reader would read it, never by crawling its pages:
 1. its **RSS/Atom feed** (found from the page's `<link rel="alternate">` tag, or a few conventional paths), else

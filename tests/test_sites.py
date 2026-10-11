@@ -1,4 +1,4 @@
-"""Automatic website search (D50): feed autodiscovery, sitemap fallback, filtering, polite failure."""
+"""Automatic website search (D58): feed autodiscovery, sitemap fallback, filtering, polite failure."""
 
 from __future__ import annotations
 

@@ -18,7 +18,15 @@ from ..config import Settings
 from ..db import session_scope
 from ..db.models import AICall, Campaign, ErrorRecord, Idea, IdeaStatusHistory, Source, SourceFact
 from ..packaging import build_package
-from ..taxonomy import REGIME_LABELS, CampaignStatus, ErrorState, IdeaStatus, MarketRegime, RegimeSuitability
+from ..taxonomy import (
+    REGIME_LABELS,
+    WORTH_BACKTESTING,
+    CampaignStatus,
+    ErrorState,
+    IdeaStatus,
+    MarketRegime,
+    RegimeSuitability,
+)
 from .templates import TEMPLATES
 
 STATUS_KIND = {  # status → (tone, icon); tone colors always come with icon + text label
@@ -45,9 +53,32 @@ def _money(value: float | None) -> str:
     return "—" if value is None else f"${value:,.4f}" if value < 1 else f"${value:,.2f}"
 
 
+def _setup_state(idea) -> dict:
+    """Whether this idea is a runnable setup, and what stops it.
+
+    Readiness answers a different question from completeness - can this be handed to a backtester - so the
+    dashboard shows both side by side rather than letting one number imply the other. Measured need: completeness
+    alone made a fully-specified idea and an unusable one look alike.
+    """
+    from ..scoring import readiness as R
+
+    state = R.setup_readiness(idea)
+    skip = R.skip_decision(idea)
+    if skip["skip"]:
+        return {**state, "verdict": "skip", "skip": skip,
+                "label": f"source states only {skip['share']:.0%} of the setup"}
+    if not state["runnable"]:
+        return {**state, "verdict": "blocked", "skip": skip,
+                "label": "needs " + ", ".join(state["blocking_missing"])}
+    if state["bridgeable_missing"]:
+        return {**state, "verdict": "runnable", "skip": skip,
+                "label": f"runnable · {len(state['bridgeable_missing'])} value(s) to fill"}
+    return {**state, "verdict": "complete", "skip": skip, "label": "runnable as stated"}
+
+
 def make_env() -> Environment:
     env = Environment(loader=DictLoader(TEMPLATES), autoescape=select_autoescape(default=True, default_for_string=True))
-    env.filters.update(safe_url=_safe_url, fmt=_fmt, money=_money)
+    env.filters.update(safe_url=_safe_url, fmt=_fmt, money=_money, setup=_setup_state)
     from ..scoring.rules import maturity
 
     env.globals.update(maturity=maturity, STATUS_KIND=STATUS_KIND,
@@ -190,7 +221,7 @@ def create_app(engine: Engine, settings: Settings) -> FastAPI:
                 stale = int(age.total_seconds() // 60) if age.total_seconds() > 600 else None
             total = p.get("papers_total") or 0
             pct = round(100 * (p.get("papers_done") or 0) / total) if total else 0
-            promising = sum(i.status in (IdeaStatus.PROMISING, IdeaStatus.SUBMITTED_TO_BACKTEST) for i in ideas)
+            promising = sum(i.status in WORTH_BACKTESTING for i in ideas)
             return render("live.html", c=c, p=p, ideas=ideas, events=list(reversed(p.get("events") or [])),
                           sources_found=sources_found, running=running, stale=stale, pct=pct, promising=promising,
                           cap=settings.budgets.max_ai_cost_usd_per_campaign, others=others)
