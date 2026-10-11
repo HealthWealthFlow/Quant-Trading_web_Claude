@@ -293,7 +293,11 @@ class CampaignRunner:
                 if not target:
                     continue
                 text = f"{src.title} {facts.get('ABSTRACT', '')}"
-                seeded = spec.mode == "SOURCES_FILE" or "ID_YOUTUBE" in facts
+                # A page from a configured website was already matched to the request's words by the site
+                # connector and comes from a site the user chose, so like a sources.txt item it is ranked as
+                # readable and skips the finance-word filter (D61). Without this every PDF outranked it and a
+                # round's few slots never reached it.
+                seeded = spec.mode == "SOURCES_FILE" or "ID_YOUTUBE" in facts or "SITE_SOURCE" in facts
                 judged = src.title != UNKNOWN or bool(facts.get("ABSTRACT"))
                 if judged and not seeded and not FINANCE_WORDS.search(text):
                     continue  # e.g. "Shock breakout in supernovae": same word, not a market paper

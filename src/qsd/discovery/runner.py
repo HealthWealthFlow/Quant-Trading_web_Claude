@@ -73,6 +73,8 @@ def store_candidate(s, c: Candidate, campaign_id: int | None) -> tuple[Source | 
         src.organization = c.venue[:500]
     for key, value in c.ids.items():
         _add_fact_once(s, src.id, f"ID_{key.upper()}", value, c.connector)
+    if c.connector.startswith("site:"):  # found on a website the user configured: ranked as readable (D61)
+        _add_fact_once(s, src.id, "SITE_SOURCE", c.connector, c.connector)
     if c.pdf_url:
         _add_fact_once(s, src.id, "PDF_URL", c.pdf_url, c.connector)
     if c.abstract:

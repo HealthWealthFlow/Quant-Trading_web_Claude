@@ -394,3 +394,35 @@ def test_selection_skips_non_finance_papers_and_prefers_free_pdfs(setup):
         free = add("Channel breakout returns", "Breakout signals in futures markets.", pdf="https://x.example/f.pdf")
     picked = [sid for sid, _ in runner._select(cid, CampaignSpec(request="breakout", families=["breakout"]), set())]
     assert astro not in picked and picked[:2] == [free, paywalled]
+
+
+def test_a_page_from_a_configured_website_is_not_outranked_by_every_pdf(setup):
+    """A blog post has no PDF link, so it used to rank behind every open PDF and a round's few slots never reached it
+    (D61). Pages found by a site connector are ranked as readable and skip the finance-word filter."""
+    from qsd.taxonomy import AccessStatus
+
+    s, e, runner, _ai = setup
+    runner.limits.docs_per_round = 1
+    spec = parse_request("momentum strategies")
+    cid = runner.create("momentum strategies")
+    with session_scope(e) as sess:
+        pdf = Source(campaign_id=cid, title="Momentum trading strategy in equities", tier=1,
+                     access_status=AccessStatus.NOT_FETCHED, url="https://publisher.example/landing")
+        post = Source(campaign_id=cid, title="optimal momentum a global cross asset approach", tier=2,
+                      access_status=AccessStatus.NOT_FETCHED,
+                      url="https://paperswithbacktest.com/strategies/optimal-momentum-a-global-cross-asset-approach")
+        sess.add_all([pdf, post])
+        sess.flush()
+        sess.add(SourceFact(source_id=pdf.id, fact_type="PDF_URL", value="https://arxiv.org/pdf/1304.6846",
+                            extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1.0))
+        sess.add(SourceFact(source_id=post.id, fact_type="SITE_SOURCE", value="site:paperswithbacktest.com",
+                            extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1.0))
+        pdf_id, post_id = pdf.id, post.id
+    both = runner._select(cid, spec, done=set())
+    assert both[0][0] in (pdf_id, post_id)
+    runner.limits.docs_per_round = 5
+    assert {sid for sid, _ in runner._select(cid, spec, done=set())} == {pdf_id, post_id}  # the post is selectable
+    with session_scope(e) as sess:  # without the marker the same page ranks last
+        sess.query(SourceFact).filter(SourceFact.source_id == post_id, SourceFact.fact_type == "SITE_SOURCE").delete()
+    runner.limits.docs_per_round = 1
+    assert runner._select(cid, spec, done=set())[0][0] == pdf_id
