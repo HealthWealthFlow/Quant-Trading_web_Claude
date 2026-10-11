@@ -1,5 +1,11 @@
 # Changelog
 
+## Website pages are actually read (D61) (2026-10-11)
+- `qsd sites momentum` on a real PC: all eight configured sites work (Quantocracy, Robot Wealth, Allocate Smartly,
+  Papers With Backtest, Quantpedia, AQR, Moontower, QuantConnect), each returning relevant pages.
+- Source selection ranked only PDFs/arXiv/local files/videos as "readable", so website pages would have lost every
+  slot to a PDF. Pages from a configured website are now ranked as readable (like `sources.txt` items).
+
 ## Harvest target counts queueable ideas (D59); website list trimmed (D60) (2026-10-11)
 - A harvest no longer reports "target reached" for ideas that cannot be handed to the backtester: only ideas that are
   already queued or pass every queue check count (`qsd queue --why` shows what blocks the rest).
