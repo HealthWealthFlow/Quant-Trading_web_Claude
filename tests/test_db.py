@@ -73,6 +73,8 @@ def test_v1_database_migrates_without_data_loss(tmp_path):
     con.execute("ALTER TABLE ideas DROP COLUMN grounding")
     con.execute("ALTER TABLE ideas DROP COLUMN strategy_kind")   # v4 -> v5
     con.execute("ALTER TABLE ideas DROP COLUMN algorithm_rule")
+    con.execute("ALTER TABLE ideas DROP COLUMN setup")           # v5 -> v6
+    con.execute("ALTER TABLE ideas DROP COLUMN fill_origins")
     con.execute("UPDATE schema_meta SET value='1' WHERE key='schema_version'")
     con.commit()
     con.close()
@@ -82,6 +84,7 @@ def test_v1_database_migrates_without_data_loss(tmp_path):
         idea = s.scalars(select(Idea)).one()
         assert idea.strategy_name == "kept" and idea.score_details == {} and idea.grounding == {}
         assert idea.strategy_kind == "UNKNOWN" and idea.algorithm_rule == "UNKNOWN"  # additive, never lost
+        assert idea.setup == {} and idea.fill_origins == {}  # v6: no setup assembled yet, not a guess
 
 
 def test_idea_defaults_are_unknown_not_guessed(engine):

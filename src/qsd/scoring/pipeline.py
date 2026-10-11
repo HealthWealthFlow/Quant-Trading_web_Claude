@@ -8,12 +8,14 @@ from dataclasses import dataclass
 
 from sqlalchemy import Engine, select
 
+from ..ai.prompts import STAGE_B_VERSION
 from ..config import Settings
 from ..db import session_scope
-from ..db.models import Idea, IdeaSource, IdeaStatusHistory, Rejection, Source, SourceFact
+from ..db.models import AICall, Idea, IdeaSource, IdeaStatusHistory, Rejection, Source, SourceFact
 from ..security import INJECTION_FLAG
 from ..taxonomy import UNKNOWN, IdeaSourceRole, IdeaStatus, RegimeBasis, RegimeSuitability
 from . import dedupe, evidence, rules, scores
+from . import readiness as readiness_mod
 
 FROZEN_STATUSES = {IdeaStatus.SUBMITTED_TO_BACKTEST}
 
@@ -111,6 +113,17 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
         normalized = iq.normalized or 0.0
         band = scores.gate_band(normalized, gate.high_priority, gate.promising, gate.research_further)
 
+        # Setup readiness answers a different question from completeness and is reported, never scored:
+        # completeness stays the honest measure of what the source wrote down, so filling gaps with derived
+        # values can never inflate an idea's quality (see scoring/readiness.py).
+        readiness = readiness_mod.setup_readiness(idea)
+        # Whether the source said enough to be worth completing at all. An extraction that used an older
+        # prompt is flagged for re-extraction rather than skipped, because a thin result may be our failure
+        # to read the paper rather than a thin paper.
+        skip = readiness_mod.skip_decision(
+            idea, extracted_with=_extracted_with(s, idea), current_prompt=STAGE_B_VERSION
+        )
+
         # regimes and diversification tags (spec §79, §137)
         known = [r for r in idea.regimes if r.suitability is not RegimeSuitability.UNKNOWN]
         if known and all(r.basis is RegimeBasis.RATIONALE_INFERRED for r in known):
@@ -147,6 +160,8 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
             "evidence_sentences": evidence_sentences,
             "completeness": {"score": completeness, "band": rules.completeness_band(completeness),
                              "missing": missing},
+            "setup_readiness": readiness,
+            "skip": skip,
             "complexity": complexity_parts, "dedupe": {"class": dclass, "of": dup_of}, "band": band,
             "priority": priority, "note": "Scores never use claimed performance (spec §81, §82).",
         }
@@ -160,8 +175,22 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
             elif dclass == "DUPLICATE":
                 _reject_once(s, idea.id, rules.RejectionReason.DUPLICATE, f"duplicate of idea {dup_of}", hard=False)
                 _set_status(s, idea, IdeaStatus.DUPLICATE, f"same fingerprint as idea {dup_of}")
+            elif _promotional(idea):
+                # A source that advertises performance does not advance to a runnable setup on its own. Checked
+                # here as well as at extraction time so it holds for every idea already stored and on every
+                # re-score, rather than only for ideas extracted after the rule was written (measured: three
+                # ideas from a promotional YouTube transcript were promoted with the flags recorded but ignored).
+                _set_status(s, idea, IdeaStatus.NEEDS_REVIEW,
+                            "source advertises performance; a human reviews before it is handed over")
             elif idea.status is IdeaStatus.NEEDS_REVIEW:
                 pass  # human/second-opinion review first (spec §87)
+            elif readiness["runnable"] and "entry" in readiness["from_source"] and not skip["skip"]:
+                # The source stated a testable decision rule and the rest can be completed, so this is ready
+                # to hand to the backtester even if its measured quality is modest or its coverage thin. The
+                # quality band still records how promising it looks; it no longer decides whether the idea is
+                # allowed to exist as a runnable setup (D52).
+                _set_status(s, idea, IdeaStatus.READY_FOR_FORMALIZATION,
+                            f"setup runnable (completeness {completeness:.0f}, normalized {normalized:.1f})")
             elif iq.coverage < settings.scoring.min_coverage_for_gate:
                 _set_status(s, idea, IdeaStatus.RESEARCHING,
                             f"coverage {iq.coverage:.0%} < {settings.scoring.min_coverage_for_gate:.0%}; "
@@ -172,6 +201,42 @@ def score_idea(engine: Engine, settings: Settings, idea_id: int) -> ScoreResult:
                 _set_status(s, idea, new, f"quality gate band {band} (normalized {normalized:.1f})")
         return ScoreResult(idea.id, idea.status.value, iq.score, iq.coverage, priority, band,
                            idea.hard_fail_reasons)
+
+
+def _promotional(idea) -> bool:
+    """Does this idea's source advertise performance rather than evidence it?
+
+    The triage model reports these as free text ("36 wins and just five losses", "These performance numbers are
+    verified", "it just broke 1,000%"), so they cannot be matched against a fixed vocabulary of scam phrases,
+    and they are outside the deterministic RED_FLAGS patterns. Any triage flag is a performance claim by
+    construction, because that is what triage is asked to report, and `claimed_*` values never affect scoring -
+    so a flagged source is reviewed by a person before anything is built on it.
+    """
+    flags = idea.red_flags or []
+    return (INJECTION_FLAG in flags
+            or any(str(f).startswith("TRIAGE_RED_FLAG:") for f in flags)
+            or len(set(flags) & rules.SCAM_FLAGS) >= 1)
+
+
+def _extracted_with(session, idea) -> str | None:
+    """Which stage-B prompt version produced this idea's rules, so a thin result can be told apart from a
+    failed extraction. Read from the AI ledger; no extra call is made.
+
+    Stage B runs before individual ideas exist, so its ledger rows carry the *source* rather than an idea id
+    (this is why the lookup is by source, matching `ai/extract.py`).
+    """
+    if idea.primary_source_id is None:
+        return None
+    return session.execute(
+        select(AICall.prompt_version)
+        .where(
+            AICall.source_id == idea.primary_source_id,
+            AICall.task == "stage_b_extract",
+            AICall.success.is_(True),
+        )
+        .order_by(AICall.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
 
 
 def score_all(engine: Engine, settings: Settings) -> list[ScoreResult]:

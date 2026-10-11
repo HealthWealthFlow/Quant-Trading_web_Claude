@@ -145,6 +145,14 @@ class IdeaStatus(StrEnum):
     SUBMITTED_TO_BACKTEST = "SUBMITTED_TO_BACKTEST"
 
 
+#: The statuses that count as "we found something worth backtesting". Defined once because four places need to
+#: agree on it - the harvest target, the campaign report, the deepen selection and the dashboard counter - and
+#: they had already drifted: the live monitor still counted only PROMISING, so it reported 0 promising ideas
+#: while seven sat at READY_FOR_FORMALIZATION (measured 2026-10-05).
+WORTH_BACKTESTING: tuple[IdeaStatus, ...] = (
+    IdeaStatus.PROMISING, IdeaStatus.READY_FOR_FORMALIZATION, IdeaStatus.SUBMITTED_TO_BACKTEST)
+
+
 class RejectionReason(StrEnum):
     """Spec §92 reasons plus §53 hard fails. Rejections are never deleted."""
 

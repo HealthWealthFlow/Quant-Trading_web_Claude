@@ -150,7 +150,7 @@ def test_notes_export_escapes_and_never_overwrites_foreign_files(tmp_path):
                           formalization_completeness=62.0))
         sess.add(new_idea(strategy_name="Other idea", summary="x"))
     vault = tmp_path / "vault"
-    folder = vault / s.export.notes_subfolder
+    folder = vault / s.export.notes_subfolder / "Unclassified"  # notes are filed under a group subfolder
     folder.mkdir(parents=True)
     foreign = folder / "QSD-000002 Other idea.md"
     foreign.write_text("my own note, not from QSD\n", encoding="utf-8")
@@ -169,6 +169,36 @@ def test_notes_export_escapes_and_never_overwrites_foreign_files(tmp_path):
         sess.get(Idea, 1).strategy_name = "Renamed strategy"
     rep2 = export_notes(e, s, notes_dir=vault, idea_ids=[1])
     assert rep2.files == rep.files and "Renamed strategy" in rep2.files[0].read_text(encoding="utf-8")
+
+
+def test_notes_can_be_grouped_into_folders(tmp_path):
+    """A harvest yields several kinds of strategy at once, so notes can be filed by group.
+
+    Measured need (2026-10-05): the reader asked for strategies to be grouped and saved in folders rather than
+    written into one flat list.
+    """
+    s = settings()
+    e = make_engine(tmp_path / "db.sqlite")
+    init_db(e)
+    with session_scope(e) as sess:
+        sess.add(new_idea(strategy_name="Momentum A", strategy_families=["MOMENTUM"], asset_classes=["STOCK"],
+                          entry_rule="buy"))
+        sess.add(new_idea(strategy_name="Reversion B", strategy_families=["MEAN REVERSION"],
+                          asset_classes=["FX"], entry_rule="buy"))
+        sess.add(new_idea(strategy_name="Unlabelled C", entry_rule="buy"))
+
+    rep = export_notes(e, s, notes_dir=tmp_path / "vault", group_by="family")
+    rel = sorted(str(p.relative_to(tmp_path / "vault")).replace("\\", "/") for p in rep.files)
+    assert any("/MOMENTUM/" in r for r in rel)
+    assert any("/MEAN REVERSION/" in r for r in rel)
+    assert any("/Unclassified/" in r for r in rel), "an idea with no family still needs a home"
+
+    by_asset = export_notes(e, s, notes_dir=tmp_path / "vault2", group_by="asset")
+    rel2 = sorted(str(p.relative_to(tmp_path / "vault2")).replace("\\", "/") for p in by_asset.files)
+    assert any("/STOCK/" in r for r in rel2) and any("/FX/" in r for r in rel2)
+
+    flat = export_notes(e, s, notes_dir=tmp_path / "vault3", group_by="none")
+    assert all(p.parent.name == s.export.notes_subfolder for p in flat.files)
 
 
 def test_notes_cli_needs_a_folder(tmp_path, capsys):

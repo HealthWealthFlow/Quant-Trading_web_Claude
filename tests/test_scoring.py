@@ -103,7 +103,9 @@ def test_good_idea_scored_with_breakdown_and_no_claims_used(engine):
                                                          "sample_period"}
         assert idea.source_quality >= 80 and idea.formalization_completeness >= 90
         assert "999" not in str(d)  # claimed performance plays no part in scoring
-    assert r.coverage >= 0.6 and r.band in ("HIGH_PRIORITY", "PROMISING") and r.status == "PROMISING"
+    # The band still reports how promising it looks; the status now records that the setup is runnable (D52).
+    assert r.coverage >= 0.6 and r.band in ("HIGH_PRIORITY", "PROMISING")
+    assert r.status in ("PROMISING", "READY_FOR_FORMALIZATION")
     # claims don't change the score
     iid2, _ = add(engine, abstract, ids={"ID_DOI": "10.1/OTHER"}, **{**GOOD, "strategy_name": "B",
                                                                        "signal": "different signal b"})
@@ -175,3 +177,20 @@ def test_weights_must_sum_to_100():
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
         load_settings(DEFAULT_CONFIG, None, environ={"QSD_SCORING__IDEA_WEIGHTS__CAPACITY": "50"})
+
+
+def test_a_source_that_advertises_performance_is_not_promoted_without_review(engine):
+    """A fully specified idea from a promotional source must not advance on its own.
+
+    Measured: a promotional YouTube transcript produced three ideas that reached runnable setups with
+    "36 wins and just five losses" / "These performance numbers are verified" / "it just broke 1,000%" recorded
+    as red flags but ignored. Triage reports these as free text, so they cannot be matched against a fixed
+    vocabulary - the presence of a triage flag is itself the signal.
+    """
+    iid, _ = add(engine, **{**GOOD, "red_flags": ["TRIAGE_RED_FLAG:it just broke 1,000%"]})
+    assert score_idea(engine, S, iid).status == "NEEDS_REVIEW"
+
+    # The same shape without a promotional flag is promoted, so the gate is what changed the outcome.
+    clean, _ = add(engine, **{**GOOD, "strategy_name": "Clean twin",
+                              "entry_rule": "go long when the 6-month return > 0"})
+    assert score_idea(engine, S, clean).status == "READY_FOR_FORMALIZATION"

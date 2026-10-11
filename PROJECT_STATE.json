@@ -2,7 +2,7 @@
   "project": "Quant Strategy Discovery & Source Intelligence System",
   "phase": "1-complete",
   "working_branch": "claude/loving-noether-1m40os",
-  "database_version": 5,
+  "database_version": 6,
   "milestones": [
     {
       "id": "M0",

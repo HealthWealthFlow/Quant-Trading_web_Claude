@@ -139,22 +139,30 @@ def _owned(path: Path, idea_id: int) -> bool:
 
 
 def export_notes(engine: Engine, settings: Settings, *, campaign_id: int | None = None,
-                 idea_ids: list[int] | None = None, notes_dir: Path | None = None) -> ExportReport:
+                 idea_ids: list[int] | None = None, notes_dir: Path | None = None,
+                 group_by: str = "family") -> ExportReport:
+    """Write one note per idea, optionally grouped into a subfolder.
+
+    Measured need: a harvest produces ideas of several kinds at once, and a reader wants them separated rather
+    than in one flat list. `group_by` is the strategy family (dominant first), the asset class, or nothing.
+    """
     base = notes_dir or settings.export.notes_dir
     if base is None:
         raise ValueError("no notes folder: set export.notes_dir in config/local.yaml or pass --dir")
     folder = Path(base) / settings.export.notes_subfolder
     folder.mkdir(parents=True, exist_ok=True)
     with session_scope(engine) as s:
-        q = select(Idea.id, Idea.strategy_name).order_by(Idea.id)
+        q = select(Idea.id, Idea.strategy_name, Idea.strategy_families, Idea.asset_classes).order_by(Idea.id)
         if campaign_id is not None:
             q = q.where(Idea.campaign_id == campaign_id)
         if idea_ids:
             q = q.where(Idea.id.in_(idea_ids))
         rows = s.execute(q).all()
     rep = ExportReport(folder)
-    for idea_id, name in rows:
-        path = _target(folder, idea_id, name)
+    for idea_id, name, families, assets in rows:
+        target_dir = folder / _group_folder(group_by, families, assets)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        path = _target(target_dir, idea_id, name)
         if not _owned(path, idea_id):
             rep.skipped += 1
             rep.skipped_files.append(path)
@@ -163,3 +171,12 @@ def export_notes(engine: Engine, settings: Settings, *, campaign_id: int | None 
         rep.written += 1
         rep.files.append(path)
     return rep
+
+
+def _group_folder(group_by: str, families: list | None, assets: list | None) -> Path:
+    """The subfolder an idea belongs in. Never empty: ungrouped work still needs somewhere to live."""
+    if group_by == "family":
+        return Path(_safe_name(families[0]) if families else "Unclassified")
+    if group_by == "asset":
+        return Path(_safe_name(assets[0]) if assets else "Unclassified")
+    return Path()

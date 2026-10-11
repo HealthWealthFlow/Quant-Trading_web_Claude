@@ -83,7 +83,9 @@ def test_package_contents(env):
 def test_submit_eligible_idea_writes_queue_file(env):
     s, e, tmp = env
     iid = make(e)
-    assert score_idea(e, s, iid).status == "PROMISING"
+    # A source that states the decision and the risk control is ready to hand over, which is now a distinct
+    # status from merely scoring well (D52).
+    assert score_idea(e, s, iid).status == "READY_FOR_FORMALIZATION"
     ok, path, reasons = submit_to_queue(e, s, iid)
     assert ok and reasons == [] and path.parent == tmp / "queue" / "pending"
     data = json.loads(path.read_text())
@@ -93,14 +95,62 @@ def test_submit_eligible_idea_writes_queue_file(env):
     assert list((tmp / "queue" / "pending").glob("*.tmp")) == []  # atomic write left no temp files
 
 
-def test_ineligible_ideas_blocked_with_reasons(env):
+def test_algorithm_rule_reaches_the_package(env):
+    """An algorithm-shaped strategy's decision must survive into the package.
+
+    Regression: `packaging/package.py` kept its own copy of the rule-field list, which was never updated when
+    D38 added `strategy_kind` and `algorithm_rule`. So a portfolio-weight strategy was extracted, grounded to a
+    quote, and still reported as having no source-stated decision rule - and the bridge refused to hand it over.
+    """
+    from qsd.ai.schemas import RULE_FIELDS as CANONICAL
+    from qsd.packaging.package import RULE_FIELDS as PACKAGE_FIELDS
+
+    assert set(PACKAGE_FIELDS) == set(CANONICAL), "the package must use the one canonical rule-field list"
+
+    s, e, _ = env
+    iid = make(e, strategy_name="PAMR", entry_rule="UNKNOWN", exit_rule="UNKNOWN", signal="UNKNOWN",
+               strategy_kind="PORTFOLIO_WEIGHT",
+               algorithm_rule="w_{t+1} = w_t - tau * (r_t - r_bar) * x_t")
+    pkg = build_package(e, s, iid)
+    assert "algorithm_rule" in pkg.known_rules
+    assert pkg.known_rules["algorithm_rule"]["value"].startswith("w_{t+1}")
+
+
+def test_a_queued_idea_can_be_withdrawn_and_goes_back_to_review(env):
+    """Submission is reversible: the package leaves pending/ without being destroyed, and a person decides
+    what happens to the idea next."""
+    from qsd.packaging import withdraw_from_queue
+
     s, e, tmp = env
-    vague = make(e, strategy_name="vague", signal="buy strength", instrument="UNKNOWN", entry_rule="UNKNOWN",
-                 exit_rule="UNKNOWN", lookback="UNKNOWN", position_sizing="UNKNOWN", rebalance="UNKNOWN")
+    iid = make(e)
+    score_idea(e, s, iid)
+    ok, path, _ = submit_to_queue(e, s, iid)
+    assert ok and path.exists()
+
+    done, moved, why = withdraw_from_queue(e, s, iid)
+    assert done and why == ""
+    assert not path.exists()                      # nothing left for the downstream system to collect
+    assert moved is not None and moved.exists()   # the record of what was handed over survives
+    assert moved.parent.name == "withdrawn"
+    with session_scope(e) as sess:
+        assert sess.get(Idea, iid).status is IdeaStatus.NEEDS_REVIEW
+
+    # Withdrawing again is a no-op that says so, rather than an error or a silent success.
+    again, _, why2 = withdraw_from_queue(e, s, iid)
+    assert again is False and "no package file" in why2
+
+
+def test_ineligible_ideas_blocked_with_reasons(env):
+    """An idea whose entry the source never stated cannot be handed over: there would be nothing of the
+    source left to test, however complete the rest of its fields look."""
+    s, e, tmp = env
+    vague = make(e, strategy_name="vague", signal="UNKNOWN", instrument="UNKNOWN", entry_rule="UNKNOWN",
+                 exit_rule="UNKNOWN", lookback="UNKNOWN", position_sizing="UNKNOWN", rebalance="UNKNOWN",
+                 transaction_cost_assumption="UNKNOWN")
     score_idea(e, s, vague)
     ok, path, reasons = submit_to_queue(e, s, vague)
     assert not ok and path is None
-    assert any("instrument unknown" in r for r in reasons) and any("completeness" in r for r in reasons)
+    assert any("no entry rule stated by the source" in r for r in reasons)
     hft = make(e, strategy_name="hft", signal="order book imbalance", time_horizon=TimeHorizon.HFT)
     score_idea(e, s, hft)
     assert any("latency" in r for r in submit_to_queue(e, s, hft)[2])

@@ -128,7 +128,9 @@ def test_queue_why_reports_blocking_reasons(tmp_path, capsys):
         s.add(new_idea(strategy_name="Vague idea", status=IdeaStatus.PROMISING))
     assert main(["queue", "--why", "--db", db]) == 0
     out = capsys.readouterr().out
-    assert "blocked:" in out and "instrument unknown" in out and "0 of 1 idea(s) eligible" in out
+    # An idea with no stated entry is blocked because the hypothesis itself is missing, not because a
+    # bookkeeping field is blank (D52).
+    assert "blocked:" in out and "no entry rule stated by the source" in out and "0 of 1 idea(s) eligible" in out
     assert "Blocking reasons (ideas affected):" in out
 
 

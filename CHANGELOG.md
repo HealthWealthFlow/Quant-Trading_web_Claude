@@ -1,6 +1,15 @@
 # Changelog
 
-## Automatic website search (D50) (2026-10-11)
+## Merge of `feat/setup-readiness` (D50–D57) with the website search (D58) (2026-10-11)
+- The live database had been upgraded to schema v6 by code that was never merged; `main` (v5) refused to open it.
+  Merging brings `main` to v6: setup readiness and derived exits (D50–D52), promotional sources sent to review (D53),
+  `qsd queue --withdraw` (D54), the portable bridge bundle `qsd handoff --export` (D55), the Firecrawl web-search channel
+  and `find_strategy_ideas.bat` (D56), dashboard readiness (D57).
+- **Behaviour change to be aware of (D52):** the backtest queue is no longer gated by the PROMISING = 70 band; a
+  runnable setup with a source-stated entry rule qualifies if normalized ≥ 55, coverage ≥ 0.6 and data availability ≥ 0.4.
+- The website search was renumbered D50 → D58 to avoid the clash; decisions D50–D57 were added to `DECISIONS.md`.
+
+## Automatic website search (D58) (2026-10-11)
 - New `discovery.sites` list (default: Quantocracy, Alpha Architect, Robot Wealth, QuantStart, Allocate Smartly,
   Papers With Backtest, Quantpedia, AQR Research, Cboe Insights, tastylive, Moontower, QuantConnect, SSRN). Each site is read through its RSS/Atom feed (found from the page) or
   its XML sitemap; robots.txt applies; a site with neither is reported and skipped. They join every research, harvest
