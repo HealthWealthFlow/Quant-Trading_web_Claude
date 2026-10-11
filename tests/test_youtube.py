@@ -88,7 +88,8 @@ def test_youtube_without_key_is_skipped_or_refused(monkeypatch):
     f = fetcher_for(s, seen)
     with pytest.raises(ConnectorError, match="YOUTUBE_API_KEY"):
         YouTubeConnector(f).search("x")
-    assert [c.name for c in build_connectors(f, s)] == ["arxiv", "openalex", "crossref"]  # quietly left out
+    assert [c.name for c in build_connectors(f, s) if not c.name.startswith("site:")] == [
+        "arxiv", "openalex", "crossref"]  # quietly left out (the configured websites are tested elsewhere)
     with pytest.raises(ConnectorError, match="YOUTUBE_API_KEY"):
         build_connectors(f, s, ["youtube"])  # explicitly asked for: say why it can't run
     assert seen == []
@@ -97,7 +98,7 @@ def test_youtube_without_key_is_skipped_or_refused(monkeypatch):
 def test_build_connectors_with_key(monkeypatch):
     monkeypatch.setenv("YOUTUBE_API_KEY", KEY)
     s = settings()
-    names = [c.name for c in build_connectors(fetcher_for(s, []), s)]
+    names = [c.name for c in build_connectors(fetcher_for(s, []), s) if not c.name.startswith("site:")]
     assert names == ["arxiv", "openalex", "crossref", "youtube"]
     s.discovery.youtube_enabled = False
     assert "youtube" not in [c.name for c in build_connectors(fetcher_for(s, []), s)]

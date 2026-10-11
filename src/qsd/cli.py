@@ -354,6 +354,30 @@ def _cmd_reextract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sites(args: argparse.Namespace) -> int:
+    """Try each configured site (no AI cost): how it was read, how many items, and what a query would match."""
+    from .discovery.sites import SiteConnector
+
+    s = load_settings()
+    if not s.discovery.sites:
+        print("No sites configured (discovery.sites in config/default.yaml or config/local.yaml).")
+        return 0
+    with PoliteFetcher(s, cache_dir=s.resolve_path(s.paths.data_dir) / "http_cache") as fetcher:
+        for site in s.discovery.sites:
+            conn = SiteConnector(fetcher, site, s.discovery.contact_email)
+            try:
+                items = conn.items()
+            except Exception as e:  # noqa: BLE001 - report every kind of failure and carry on with the next site
+                print(f"[FAIL] {site.name}: {e}")
+                continue
+            matches = conn.search(args.query, limit=5) if args.query else []
+            print(f"[ OK ] {site.name}: {len(items)} item(s) via {conn.resolved_via}"
+                  + (f"; {len(matches)} match '{args.query}'" if args.query else ""))
+            for c in matches:
+                print(f"         - {c.title[:90]}  {c.url}")
+    return 0
+
+
 def _cmd_factcheck(args: argparse.Namespace) -> int:
     """Explain why quotes were rejected: closest passage in the source text and the share of words found there."""
     import unicodedata
@@ -674,7 +698,7 @@ def build_parser() -> argparse.ArgumentParser:
     qu.set_defaults(func=_cmd_queries)
     di = sub.add_parser("discover", help="search official APIs and store candidate sources (metadata only)")
     di.add_argument("query", nargs="*", help="free-text queries; default: query families for --asset/--regime")
-    di.add_argument("--connector", default="all", help="arxiv,openalex,crossref,youtube or all")
+    di.add_argument("--connector", default="all", help="arxiv,openalex,crossref,youtube,github,sites or all")
     di.add_argument("--asset", action="append", default=[])
     di.add_argument("--regime", action="append", default=[])
     di.add_argument("--limit", type=int, default=10, help="results per query per connector")
@@ -707,6 +731,10 @@ def build_parser() -> argparse.ArgumentParser:
     rx.add_argument("--yes", action="store_true", help="really call the AI")
     rx.add_argument("--db", help="database path or SQLAlchemy URL")
     rx.set_defaults(func=_cmd_reextract)
+    st = sub.add_parser("sites", help="try each configured website (feed / sitemap) and show what a query would "
+                                      "match; no AI cost")
+    st.add_argument("query", nargs="?", default="", help="e.g. 'momentum' or 'mean reversion pairs'")
+    st.set_defaults(func=_cmd_sites)
     fc = sub.add_parser("factcheck", help="explain why an idea's values were removed: closest source passage per "
                                           "quote (no AI cost)")
     fc.add_argument("idea", type=int)

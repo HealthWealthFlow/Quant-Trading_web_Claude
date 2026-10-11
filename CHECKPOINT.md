@@ -1,6 +1,6 @@
 # Checkpoint
 
-**Last updated:** 2026-10-05 · `main` at PR #17 (`12c6390`) · 265 tests passing, `ruff check .` clean · schema v5 ·
+**Last updated:** 2026-10-05 · `main` at PR #17 (`12c6390`) · 273 tests passing, `ruff check .` clean · schema v5 ·
 prompts a1 / b5 / c1 · quality gate PROMISING = 70 (D48).
 
 **Orientation:** read `HANDOFF.md` §0 first — it holds the current state, the live-database snapshot, the ranked open

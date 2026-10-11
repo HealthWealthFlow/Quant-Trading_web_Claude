@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .taxonomy import AssetClass
 
@@ -113,6 +113,22 @@ class QualityGate(BaseModel):
     research_further: int = 55
 
 
+class SiteSource(BaseModel):
+    """A website searched automatically through its RSS/Atom feed or XML sitemap (D50). robots.txt always applies."""
+
+    name: str
+    url: str
+    kind: Literal["auto", "feed", "sitemap"] = "auto"  # auto: find the feed from the page, else the sitemap
+    path: str | None = None  # sitemap only: keep just the URLs under this path, e.g. "/insights/"
+
+    @field_validator("url")
+    @classmethod
+    def _http_only(cls, v: str) -> str:
+        if not v.lower().startswith(("http://", "https://")):
+            raise ValueError("a site address must start with http:// or https://")
+        return v.strip()
+
+
 class Discovery(BaseModel):
     # Sent to OpenAlex/Crossref "polite pool" as the API docs request. Leave empty to omit.
     contact_email: str | None = None
@@ -132,6 +148,9 @@ class Discovery(BaseModel):
     github_enabled: bool = False
     github_results_per_query: int = Field(5, gt=0, le=30)
     github_min_stars: int = Field(0, ge=0)  # raise to keep only repos with some community signal
+    # Blogs and research libraries searched automatically through their RSS/Atom feed or sitemap (D50).
+    sites_enabled: bool = True
+    sites: list[SiteSource] = Field(default_factory=list)
 
 
 DEFAULT_IDEA_WEIGHTS = {

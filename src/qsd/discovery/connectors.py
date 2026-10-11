@@ -52,6 +52,7 @@ class ConnectorError(RuntimeError):
 
 class Connector:
     name = "base"
+    memory_days: int | None = None  # shorter "don't repeat this search" window than the global one
 
     def __init__(self, fetcher: PoliteFetcher, contact_email: str | None = None):
         self.fetcher = fetcher
@@ -481,6 +482,8 @@ def build_connectors(fetcher: PoliteFetcher, settings, names: list[str] | None =
     token = get_secret(GitHubConnector.TOKEN_ENV)
     out: list[Connector] = []
     for name in names or list(CONNECTORS):
+        if name == "sites":  # the configured websites (below)
+            continue
         if name == "youtube":
             if settings.discovery.youtube_enabled and key:
                 out.append(YouTubeConnector(fetcher, settings.discovery.contact_email, api_key=key,
@@ -497,4 +500,8 @@ def build_connectors(fetcher: PoliteFetcher, settings, names: list[str] | None =
                                      "but unauthenticated search is limited to 60 requests/hour)")
             continue
         out.append(CONNECTORS[name](fetcher, settings.discovery.contact_email))
+    if (names is None and settings.discovery.sites_enabled) or (names and "sites" in names):
+        from .sites import SiteConnector
+
+        out += [SiteConnector(fetcher, site, settings.discovery.contact_email) for site in settings.discovery.sites]
     return out
