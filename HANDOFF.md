@@ -2,11 +2,11 @@
 
 > Complete orientation for another AI model or harness (written for a DeepSeek-based harness taking over from Claude
 > Code) and for any developer. Read **§0 first** (where things stand and what to do next), then the rest as reference.
-> Also read `CLAUDE.md` (working rules), `DECISIONS.md` (why, D1–D49), `KNOWN_ISSUES.md`, `CHANGELOG.md` (what changed
+> Also read `CLAUDE.md` (working rules), `DECISIONS.md` (why, D1–D50), `KNOWN_ISSUES.md`, `CHANGELOG.md` (what changed
 > when, newest first) and `docs/GATE_CALIBRATION.md` (the score arithmetic and the 2026-10-04 re-measurement).
 > Section numbers like "§84" refer to the requirements in `docs/MASTER_SPEC.md`.
 >
-> **Updated 2026-10-05** · `main` at the merge of PR #17 (`12c6390`) · **265 tests passing**, `ruff check .` clean ·
+> **Updated 2026-10-05** · `main` at the merge of PR #17 (`12c6390`) · **273 tests passing**, `ruff check .` clean ·
 > DB schema **v5** · package v1.2 · prompts **a1 / b5 / c1** · quality gate **PROMISING = 70** (D48).
 > Older text in this file that disagrees with `DECISIONS.md` or `CHANGELOG.md` is out of date; those two win.
 
@@ -123,7 +123,7 @@ Opening `data/qsd.sqlite` by *copying the file* can miss recent commits held in 
 ### 0.7 Instructions for the harness taking over
 - You are continuing, not restarting. The code, tests and docs are the source of truth; `git log --oneline -20` and
   `DECISIONS.md` tell you what was decided and why. Do not re-derive established facts.
-- Run `pip install -e ".[dev]"`, `pytest -q` (expect 265 passed) and `ruff check .` before and after every change.
+- Run `pip install -e ".[dev]"`, `pytest -q` (expect 273 passed) and `ruff check .` before and after every change.
 - The user approves every merge to `main` ("merge it"). If your harness cannot open pull requests, commit to a feature
   branch, tell the user the branch name and what to review, and **never push to `main` on your own**.
 - Respect the non-negotiables in §2 — especially: no fabrication (unverifiable values become `UNKNOWN`), claimed
@@ -195,7 +195,7 @@ From the user (keep honouring these):
 |---|---|
 | Phase 1 milestones M0–M9 | Done |
 | Post-launch (PRs #2–#17) | Grounding fixes, `reground`/`factcheck`, PDF spacing + two-column fixes, dashboard + port 8877, guided research + live monitor, YouTube (metadata, channels, captions), `sources.txt`, maturity badge, Obsidian notes, continuous harvest + self-directed search, GitHub code discovery (off), algorithm-shaped strategies (schema v5, prompt b5), whole-document evidence, queue visibility, `reextract`, gate restored to 70 |
-| Tests | **265** (`pytest`), all network/AI mocked; `ruff check .` clean; GitHub Actions CI (`.github/workflows/ci.yml`) |
+| Tests | **273** (`pytest`), all network/AI mocked; `ruff check .` clean; GitHub Actions CI (`.github/workflows/ci.yml`) |
 | Live usage | 14 sources read, 31 ideas, 11 queued for backtest; see §0.2 and §15 |
 | Not validated | No backtest results exist yet (§0.3 item 1) |
 
@@ -263,14 +263,14 @@ From the user (keep honouring these):
 | `config/default.yaml` | All defaults (see §12). Overrides: `config/local.yaml`, then `QSD_<SECTION>__<KEY>` env vars |
 | `schemas/research_package.schema.json` | JSON Schema of the package (contract with the Quant Auto OS); regenerate with `qsd package --schema` |
 | `docs/MASTER_SPEC.md` | Condensed requirements (§1–§137; §137 = market-direction grouping added by the user) |
-| `CLAUDE.md` | Rules for AI coding sessions; `PROJECT_STATE.json`, `CHECKPOINT.md`, `TODO.md`, `KNOWN_ISSUES.md`, `DECISIONS.md` (D1–D49), `CHANGELOG.md`, `ARCHITECTURE.md`, `README.md` |
+| `CLAUDE.md` | Rules for AI coding sessions; `PROJECT_STATE.json`, `CHECKPOINT.md`, `TODO.md`, `KNOWN_ISSUES.md`, `DECISIONS.md` (D1–D50), `CHANGELOG.md`, `ARCHITECTURE.md`, `README.md` |
 | `src/qsd/cli.py` | `qsd` command (argparse). All subcommands, see §13 |
 | `src/qsd/config.py` | Pydantic settings (`Settings`, `AIConfig`, `Budgets`, `Crawling`, `Discovery`, `Scoring`, `Handoff`, `Export`); `get_secret()` reads env only; `REPO_ROOT` |
 | `src/qsd/taxonomy.py` | Enums: `MarketRegime`, `RegimeSuitability`, `RegimeBasis`, `AssetClass`, `AccessStatus`, `IdeaStatus`, `RejectionReason`, `SourceRelation`, `IdeaSourceRole`, `CampaignStatus`, `ExtractionMethod`, `MissingValue`/`UNKNOWN`, `REGIME_LABELS` ("Long (uptrend)", "Short (downtrend)", "Consolidation (sideways)", "Crash (crisis)") |
 | `src/qsd/db/` | SQLAlchemy 2 models (`models.py`, `SCHEMA_VERSION = 4`), `make_engine` (SQLite WAL + busy_timeout), `init_db` with additive `MIGRATIONS`, `new_idea()` (creates 4 regime rows) |
 | `src/qsd/handlers/` | Format detection + parsers; `HandlerResult` (blocks with `Location`, tables, links, metadata, limitations, sha256 of bytes); PDF v3: re-reads glued-word pages and adds a pdfminer layout reading (`alt_blocks`, grounding only); safe ZIP limits |
 | `src/qsd/fetch/` | `PoliteFetcher` (robots RFC 9309, per-host rate limiter, backoff/Retry-After, cooldown, size cap, total-download deadline, no cookies, ETag cache, `extra_headers` never cached), `OFFICIAL_API_ENDPOINTS` allowlist, URL canonicalisation, access-barrier detection, `fetch_and_store` |
-| `src/qsd/discovery/` | Connectors (`ArxivConnector`, `OpenAlexConnector`, `CrossrefConnector`, `YouTubeConnector`, `FeedConnector`), `build_connectors()`, `run_discovery()` (search memory, budgets, `on_search` progress, video links), query families, tiering |
+| `src/qsd/discovery/` | `sites.py` (configured websites via RSS/Atom feed or sitemap, D50), Connectors (`ArxivConnector`, `OpenAlexConnector`, `CrossrefConnector`, `YouTubeConnector`, `FeedConnector`), `build_connectors()`, `run_discovery()` (search memory, budgets, `on_search` progress, video links), query families, tiering |
 | `src/qsd/ai/` | Providers (DeepSeek/OpenAI-compatible JSON mode; Anthropic SDK optional), `AIGateway` (cache, ledger, budgets), prompts (versioned), schemas, `sections.select_relevant`, grounding, `extract_ideas`, `reground_source` |
 | `src/qsd/scoring/` | Rules (red flags, hard fails, completeness, maturity, complexity), scores (source/evidence/idea quality, priority, gate band), dedupe/fingerprints/root evidence, `evidence.py` (whole-document evidence sentences, D42/D45), `score_idea` status pipeline |
 | `src/qsd/packaging/` | `ResearchPackage` (v1.2), `build_package`, `submit_to_queue` (handoff rule), schema export |
@@ -461,7 +461,7 @@ canonicalised (tracking params removed); no credentials in URLs.
 second-opinion models, stage A/B char and token limits — B 40k chars / 8000 tokens, `prices`) · `budgets`
 (per day $1, month $20, campaign $2; AI calls 200, tokens 2M, searches 100, URLs 300, documents 150, per domain 25,
 runtime 60 min) · `crawling` (robots always on, rate, retries, timeout 30 s, 50 MB) · `exploration` · `quality_gate`
-(85 / **70** / 55) · `discovery` (contact_email, results_per_query 10, search_memory_days 30, youtube_enabled,
+(85 / **70** / 55) · `discovery` (sites_enabled + `sites` list, D50; contact_email, results_per_query 10, search_memory_days 30, youtube_enabled,
 youtube_results_per_query 10, youtube_max_links_per_video 5) · `scoring` (idea_weights, min_coverage_for_gate 0.6) ·
 `handoff` (60 / 55 / 0.6 / 0.4, queue_dir) · `export` (notes_dir, notes_subfolder "QSD Strategies").
 Secrets (env only): `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `YOUTUBE_API_KEY`.
@@ -473,14 +473,14 @@ Secrets (env only): `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `
 `campaign --resume ID` · `sources [--file] [--dry-run]` · `discover [query…] [--connector arxiv,openalex,crossref,
 youtube|all] [--asset] [--regime] [--force]` · `feed URL` · `fetch URL` · `parse FILE` · `scan [paths]` ·
 `extract FILE [--force-deep]` · `score [--idea]` · `reground [--source]` · `factcheck IDEA` · `package IDEA` /
-`package --schema PATH` · `queue --submit ID | --submit-ready | --list | --why` · `notes [--dir] [--campaign] [--idea]` ·
+`package --schema PATH` · `queue --submit ID | --submit-ready | --list | --why` · `sites [query]` (try each configured website, no AI cost) · `notes [--dir] [--campaign] [--idea]` ·
 `web [--host] [--port]` · `queries [--asset] [--regime] [--expand]` · `db init|info` · `config` · `status`.
 Every DB command accepts `--db PATH`.
 
 ---
 
 ## 14. Development workflow (for the next AI)
-- Setup (any OS): `python -m venv .venv`, activate it, `pip install -e ".[dev]"`; run `pytest -q` (265 tests, no network, no
+- Setup (any OS): `python -m venv .venv`, activate it, `pip install -e ".[dev]"`; run `pytest -q` (273 tests, no network, no
   AI keys needed) and `ruff check .` (line length 120). Use `set -o pipefail` when piping pytest output (a pipe once
   hid failures). Tests use `httpx.MockTransport` for HTTP and fake providers for AI.
 - The previous harness worked in a Linux cloud container whose network policy **blocked arxiv.org, doi.org and most
@@ -565,7 +565,7 @@ sources reporting robustness (tie-breaker) · D36 gate unchanged · D37 gate 70 
 for grounding · D42 whole-document evidence · D43 aligned quote must contain the value's numbers · D44 harvest submits to
 the queue, `queue --why` · D45 evidence precision (negations, future work) · D46 data availability for every bar-data
 class · D47 `reextract` in place · **D48 gate back to 70 (supersedes D37)** · D49 injection detector no longer flags bare
-"place a trade"; stale injection flags recomputed.
+"place a trade"; stale injection flags recomputed · D50 configured websites searched through feeds/sitemaps (`qsd sites`).
 
 ---
 

@@ -87,6 +87,27 @@ discovery:
   github_enabled: false
   github_results_per_query: 5
   github_min_stars: 0
+  # Blogs and research libraries searched automatically (D50). Each is read through its RSS/Atom feed (found from the
+  # page) or its XML sitemap; robots.txt applies and nothing behind a login or paywall is read. A site with neither
+  # is reported and skipped. kind: auto | feed | sitemap; path limits a sitemap, e.g. "/insights/". Check which
+  # sites work on your PC with `qsd sites`. Your own list in config/local.yaml REPLACES this one.
+  sites_enabled: true
+  sites:
+    - {name: Quantocracy, url: "https://quantocracy.com/"}
+    - {name: Alpha Architect, url: "https://alphaarchitect.com/"}
+    - {name: Robot Wealth, url: "https://robotwealth.com/"}
+    - {name: QuantStart, url: "https://www.quantstart.com/"}
+    - {name: Allocate Smartly, url: "https://allocatesmartly.com/"}
+    - {name: Papers With Backtest, url: "https://paperswithbacktest.com/"}
+    - {name: Quantpedia, url: "https://quantpedia.com/"}
+    - {name: AQR Research, url: "https://www.aqr.com/", kind: sitemap, path: "/insights/"}
+    - {name: Cboe Insights, url: "https://www.cboe.com/", kind: sitemap, path: "/insights/"}
+    - {name: tastylive, url: "https://www.tastylive.com/"}
+    - {name: Moontower, url: "https://moontower.ai/"}
+    - {name: QuantConnect, url: "https://www.quantconnect.com/"}
+    # SSRN has no public feed and may refuse automated access; it is listed so `qsd sites` shows what happens.
+    # Many SSRN papers also arrive through the OpenAlex and Crossref searches.
+    - {name: SSRN, url: "https://www.ssrn.com/"}
 
 scoring:
   # Idea quality weights (spec §52); must sum to 100.

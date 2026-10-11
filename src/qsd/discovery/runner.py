@@ -122,12 +122,15 @@ def run_discovery(engine: Engine, connectors: list[Connector], queries: list[str
         for query in queries:
             for conn in connectors:
                 done += 1
-                if recently_searched(engine, conn.name, query, memory_days):
+                own = getattr(conn, "memory_days", None)
+                days = memory_days if own is None else min(memory_days, own)
+                if recently_searched(engine, conn.name, query, days):
                     report.queries_skipped_memory += 1
                     if on_search:
                         on_search(conn.name, query, None, 0, done, total)
                     continue
-                budget.spend("search_requests")
+                if getattr(conn, "uses_search_budget", True):  # a site is read once and filtered locally
+                    budget.spend("search_requests")
                 try:
                     found = conn.search(query, limit=limit_per_query)
                 except ConnectorError as e:

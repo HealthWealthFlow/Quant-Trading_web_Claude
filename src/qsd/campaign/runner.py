@@ -415,7 +415,8 @@ class CampaignRunner:
                                     f"{name} post publication decay"]),
                  ("RECENT", [f"{name} {year - 2}", f"{name} {year - 1}"])]
         counts = {"REPLICATES": 0, "SUPPORTS": 0, "CONTRADICTS": 0, "UNRELATED": 0, "UNCLEAR": 0}
-        papers_only = [c for c in self.connectors if c.name != "youtube"]  # evidence comes from papers
+        papers_only = [c for c in self.connectors if c.name != "youtube" and not c.name.startswith("site:")]
+        # (evidence comes from papers; the configured blogs are for discovering ideas, not for replication evidence)
         for purpose, queries in plans:
             rep = run_discovery(self.engine, papers_only, queries, budget, limit_per_query=5,
                                 memory_days=self.settings.discovery.search_memory_days, campaign_id=cid,

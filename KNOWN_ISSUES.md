@@ -34,3 +34,7 @@
 - **Stitched quotes:** a quote that joins two sentences and skips one between them is rejected (idea 10's entry rule).
   Correct under "continuous text"; whether to allow a logged small gap is undecided.
 - **Parts of one system are separate ideas** (ideas 5–8 under 9; ideas 11–15 from one paper under an older prompt).
+- **Website search is untested against the real sites (D50).** The build environment cannot reach them; tests use mocked
+  feeds and sitemaps. Run `qsd sites momentum` on your PC: a site with no feed/sitemap, behind a bot wall, or disallowing
+  automated access shows [FAIL] and is skipped. A sitemap gives only a title taken from the page address, so its matches
+  are weaker than a feed's. Paywalled pages are read only as far as they are public.
