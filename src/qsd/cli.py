@@ -477,8 +477,23 @@ def _cmd_queue(args: argparse.Namespace) -> int:
         return 0
     if args.list:
         pending = s.resolve_path(s.handoff.queue_dir) / "pending"
-        for p in sorted(pending.glob("*.json")) if pending.exists() else []:
-            print(p.name)
+        files = sorted(pending.glob("*.json")) if pending.exists() else []
+        seen: dict[str, int] = {}
+        for p in files:
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                print(p.name)
+                continue
+            sc = d.get("scores") or {}
+            norm, comp = sc.get("idea_quality_normalized"), sc.get("formalization_completeness")
+            idea = p.name.split("-")[1] if p.name.count("-") >= 2 else "?"
+            seen[idea] = seen.get(idea, 0) + 1
+            print(f"{p.name}  normalized {'-' if norm is None else f'{norm:.1f}':>5}  complete "
+                  f"{'-' if comp is None else f'{comp:.0f}':>3}  {str(d.get('strategy_name', ''))[:60]}")
+        dupes = sorted(i for i, n in seen.items() if n > 1)
+        extra = f"; more than one file for idea(s) {', '.join(dupes)}" if dupes else ""
+        print(f"\n{len(files)} package(s) pending{extra}")
         return 0
     if args.withdraw:
         for i in args.withdraw:

@@ -426,3 +426,34 @@ def test_a_page_from_a_configured_website_is_not_outranked_by_every_pdf(setup):
         sess.query(SourceFact).filter(SourceFact.source_id == post_id, SourceFact.fact_type == "SITE_SOURCE").delete()
     runner.limits.docs_per_round = 1
     assert runner._select(cid, spec, done=set())[0][0] == pdf_id
+
+
+def test_selection_puts_hosts_that_already_refused_us_last(setup):
+    """Measured: four of a round's six slots went to hosts answering access_restricted / robots_disallowed, and the next
+    round would have picked them again (D62). A host that has also served a page is not penalised."""
+    from qsd.taxonomy import AccessStatus
+
+    s, e, runner, _ai = setup
+    runner.limits.docs_per_round = 3
+    spec = parse_request("trend following ETF strategies")
+    cid = runner.create("trend following ETF strategies")
+    title = "Trend following ETF trading strategy"
+    with session_scope(e) as sess:
+        sess.add_all([  # earlier reads, in other campaigns: one host refuses, another refuses once but also served one
+            Source(title="old", url="https://blocked.example/a", access_status=AccessStatus.ACCESS_RESTRICTED),
+            Source(title="old", url="https://mixed.example/a", access_status=AccessStatus.PAYWALLED),
+            Source(title="old", url="https://mixed.example/b", access_status=AccessStatus.OK)])
+        a = Source(campaign_id=cid, title=title, tier=1, access_status=AccessStatus.NOT_FETCHED,
+                   url="https://blocked.example/new", content_type="metadata")
+        b = Source(campaign_id=cid, title=title, tier=1, access_status=AccessStatus.NOT_FETCHED,
+                   url="https://mixed.example/new")
+        c = Source(campaign_id=cid, title=title, tier=1, access_status=AccessStatus.NOT_FETCHED,
+                   url="https://fresh.example/new")
+        sess.add_all([a, b, c])
+        sess.flush()
+        for src in (a, b, c):  # all look readable, so only the refusal history can separate them
+            sess.add(SourceFact(source_id=src.id, fact_type="PDF_URL", value=src.url + ".pdf",
+                                extraction_method=ExtractionMethod.DETERMINISTIC, confidence=1.0))
+        a_id = a.id
+    order = [sid for sid, _ in runner._select(cid, spec, done=set())]
+    assert order[-1] == a_id and len(order) == 3  # still selectable, but only after the others

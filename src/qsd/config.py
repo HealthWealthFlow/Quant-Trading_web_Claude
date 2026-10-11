@@ -67,7 +67,7 @@ class Budgets(BaseModel):
     max_ai_calls_per_campaign: int = Field(200, ge=0)
     max_ai_tokens_per_campaign: int = Field(2_000_000, ge=0)
     max_search_requests_per_campaign: int = Field(300, ge=0)
-    max_urls_per_campaign: int = Field(300, ge=0)
+    max_urls_per_campaign: int = Field(3000, ge=0)
     max_documents_per_campaign: int = Field(150, ge=0)
     max_sources_per_domain: int = Field(25, ge=0)
     max_runtime_minutes_per_campaign: int = Field(60, ge=0)

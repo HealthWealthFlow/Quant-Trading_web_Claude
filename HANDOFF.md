@@ -2,11 +2,11 @@
 
 > Complete orientation for another AI model or harness (written for a DeepSeek-based harness taking over from Claude
 > Code) and for any developer. Read **§0 first** (where things stand and what to do next), then the rest as reference.
-> Also read `CLAUDE.md` (working rules), `DECISIONS.md` (why, D1–D61), `KNOWN_ISSUES.md`, `CHANGELOG.md` (what changed
+> Also read `CLAUDE.md` (working rules), `DECISIONS.md` (why, D1–D62), `KNOWN_ISSUES.md`, `CHANGELOG.md` (what changed
 > when, newest first) and `docs/GATE_CALIBRATION.md` (the score arithmetic and the 2026-10-04 re-measurement).
 > Section numbers like "§84" refer to the requirements in `docs/MASTER_SPEC.md`.
 >
-> **Updated 2026-10-11** · `main` after the merge of the website search (D58) and `feat/setup-readiness` (D50–D57) · **303 tests passing**, `ruff check .` clean ·
+> **Updated 2026-10-11** · `main` after the merge of the website search (D58) and `feat/setup-readiness` (D50–D57) · **305 tests passing**, `ruff check .` clean ·
 > DB schema **v6** · package v1.2 · prompts **a1 / b5 / c1** · quality gate **PROMISING = 70** (D48), but see §0.8: since D52 the gate no longer decides what reaches the backtest queue.
 > Older text in this file that disagrees with `DECISIONS.md` or `CHANGELOG.md` is out of date; those two win.
 
@@ -289,7 +289,7 @@ From the user (keep honouring these):
 | `config/default.yaml` | All defaults (see §12). Overrides: `config/local.yaml`, then `QSD_<SECTION>__<KEY>` env vars |
 | `schemas/research_package.schema.json` | JSON Schema of the package (contract with the Quant Auto OS); regenerate with `qsd package --schema` |
 | `docs/MASTER_SPEC.md` | Condensed requirements (§1–§137; §137 = market-direction grouping added by the user) |
-| `CLAUDE.md` | Rules for AI coding sessions; `PROJECT_STATE.json`, `CHECKPOINT.md`, `TODO.md`, `KNOWN_ISSUES.md`, `DECISIONS.md` (D1–D61), `CHANGELOG.md`, `ARCHITECTURE.md`, `README.md` |
+| `CLAUDE.md` | Rules for AI coding sessions; `PROJECT_STATE.json`, `CHECKPOINT.md`, `TODO.md`, `KNOWN_ISSUES.md`, `DECISIONS.md` (D1–D62), `CHANGELOG.md`, `ARCHITECTURE.md`, `README.md` |
 | `src/qsd/cli.py` | `qsd` command (argparse). All subcommands, see §13 |
 | `src/qsd/config.py` | Pydantic settings (`Settings`, `AIConfig`, `Budgets`, `Crawling`, `Discovery`, `Scoring`, `Handoff`, `Export`); `get_secret()` reads env only; `REPO_ROOT` |
 | `src/qsd/taxonomy.py` | Enums: `MarketRegime`, `RegimeSuitability`, `RegimeBasis`, `AssetClass`, `AccessStatus`, `IdeaStatus`, `RejectionReason`, `SourceRelation`, `IdeaSourceRole`, `CampaignStatus`, `ExtractionMethod`, `MissingValue`/`UNKNOWN`, `REGIME_LABELS` ("Long (uptrend)", "Short (downtrend)", "Consolidation (sideways)", "Crash (crisis)") |
@@ -591,7 +591,7 @@ sources reporting robustness (tie-breaker) · D36 gate unchanged · D37 gate 70 
 for grounding · D42 whole-document evidence · D43 aligned quote must contain the value's numbers · D44 harvest submits to
 the queue, `queue --why` · D45 evidence precision (negations, future work) · D46 data availability for every bar-data
 class · D47 `reextract` in place · **D48 gate back to 70 (supersedes D37)** · D49 injection detector no longer flags bare
-"place a trade"; stale injection flags recomputed · D50 setup readiness (schema v6) · D51 derived exits, thin sources skipped · D52 eligibility = runnable setup · D53 promotional sources go to review · D54 `queue --withdraw` · D55 `handoff --export` bridge bundle · D56 web search channel + `find_strategy_ideas.bat` · D57 dashboard readiness · D58 configured websites searched through feeds/sitemaps (`qsd sites`) · D59 the harvest target counts only queueable ideas · D60 website list trimmed after a real test · D61 pages from configured websites are ranked as readable.
+"place a trade"; stale injection flags recomputed · D50 setup readiness (schema v6) · D51 derived exits, thin sources skipped · D52 eligibility = runnable setup · D53 promotional sources go to review · D54 `queue --withdraw` · D55 `handoff --export` bridge bundle · D56 web search channel + `find_strategy_ideas.bat` · D57 dashboard readiness · D58 configured websites searched through feeds/sitemaps (`qsd sites`) · D59 the harvest target counts only queueable ideas · D60 website list trimmed after a real test · D61 pages from configured websites are ranked as readable · D62 refusing hosts ranked last, url cap 3000, richer `queue --list`.
 
 ---
 
