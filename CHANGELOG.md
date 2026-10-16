@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Quiet the harmless pdfminer "FontBBox" font warnings that flooded the console while reading PDFs.
 - Fix: a malformed JSON reply in the stage C relation check no longer aborts a campaign; stray backslashes in model JSON are tolerated.
 
 ## First real run: refusing hosts and the url cap (D62) (2026-10-11)
