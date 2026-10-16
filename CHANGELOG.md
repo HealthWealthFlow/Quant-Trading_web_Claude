@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Fix: a malformed JSON reply in the stage C relation check no longer aborts a campaign; stray backslashes in model JSON are tolerated.
+
 ## First real run: refusing hosts and the url cap (D62) (2026-10-11)
 - `find_strategy_ideas.bat` with target 3 ran end to end ($0.07, 7 new ideas, none promising). It exposed two defects:
   read slots wasted on hosts that had already refused access, and a 300-page candidate cap that one round of eight

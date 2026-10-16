@@ -640,3 +640,8 @@ def test_reground_recomputes_a_stale_injection_flag(engine):
     with session_scope(engine) as s:
         idea = s.get(Idea, iid)
         assert idea.red_flags == ["PROMISSORY_LANGUAGE"] and idea.status is IdeaStatus.DISCOVERED
+
+
+def test_extract_json_tolerates_stray_backslash():
+    from qsd.ai.gateway import _extract_json
+    assert _extract_json(r'{"a": "x \alpha y", "b": "ok\n"}') == {"a": "x \\alpha y", "b": "ok\n"}
