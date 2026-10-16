@@ -60,7 +60,10 @@ def _extract_json(text: str) -> dict:
     try:
         data = json.loads(t)
     except json.JSONDecodeError as e:
-        raise AIOutputError(f"invalid JSON from model: {e}") from None
+        try:  # models sometimes emit stray backslashes (LaTeX, regex) that JSON forbids
+            data = json.loads(re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', t))
+        except json.JSONDecodeError:
+            raise AIOutputError(f"invalid JSON from model: {e}") from None
     if not isinstance(data, dict):
         raise AIOutputError("model output is not a JSON object")
     return data

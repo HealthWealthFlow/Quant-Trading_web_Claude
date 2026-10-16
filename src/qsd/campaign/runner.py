@@ -471,12 +471,15 @@ class CampaignRunner:
                                                            IdeaSource.source_id == source_id)).first()
         if not abstract or linked:
             return None
-        res, _ = self.gw.run_json(task="stage_c_relation", prompt_version=prompts.STAGE_C_VERSION,
-                                  provider=self.settings.ai.default_provider, model=self.settings.ai.cheap_model,
-                                  system=prompts.SYSTEM, user=prompts.stage_c_user(desc, wrap_untrusted(
-                                      abstract, f"source:{source_id}")),
-                                  schema=RelationResult, max_tokens=300, campaign_id=cid, source_id=source_id,
-                                  idea_id=idea_id)
+        try:
+            res, _ = self.gw.run_json(task="stage_c_relation", prompt_version=prompts.STAGE_C_VERSION,
+                                      provider=self.settings.ai.default_provider, model=self.settings.ai.cheap_model,
+                                      system=prompts.SYSTEM, user=prompts.stage_c_user(desc, wrap_untrusted(
+                                          abstract, f"source:{source_id}")),
+                                      schema=RelationResult, max_tokens=300, campaign_id=cid, source_id=source_id,
+                                      idea_id=idea_id)
+        except AIOutputError:
+            return None  # a malformed relation reply must not abort the campaign
         relation = res.relation
         grounded = quote_in_source(res.evidence_quote, normalize(abstract))
         if relation in RELATION_ROLES and (not grounded or res.confidence < MIN_RELATION_CONFIDENCE):
