@@ -7,6 +7,7 @@ reported as needing OCR (Phase 2) instead of being guessed at.
 from __future__ import annotations
 
 import io
+import logging
 import re
 
 import pdfplumber
@@ -24,6 +25,9 @@ from .base import (
     Table,
     TextBlock,
 )
+
+# pdfminer warns once per odd font ("Could not get FontBBox ..."); harmless, and it floods the console
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
 MAX_PAGES = 600
 MAX_TABLE_PAGES = 60  # table detection is slow; only the first pages
