@@ -645,3 +645,12 @@ def test_reground_recomputes_a_stale_injection_flag(engine):
 def test_extract_json_tolerates_stray_backslash():
     from qsd.ai.gateway import _extract_json
     assert _extract_json(r'{"a": "x \alpha y", "b": "ok\n"}') == {"a": "x \\alpha y", "b": "ok\n"}
+
+
+@pytest.mark.parametrize("body", [b"null", b"", b"[1]", b"not json"])
+def test_openai_compatible_provider_reports_an_unreadable_200_body_as_a_provider_error(monkeypatch, body):
+    monkeypatch.setenv("FAKE_KEY", "test-key")
+    p = OpenAICompatibleProvider("fake", "https://example.invalid", "FAKE_KEY",
+                                 transport=httpx.MockTransport(lambda request: httpx.Response(200, content=body)))
+    with pytest.raises(ProviderError, match="unreadable response"):
+        p.complete("m", "sys", "user", 100)

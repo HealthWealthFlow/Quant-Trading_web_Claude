@@ -76,7 +76,12 @@ class OpenAICompatibleProvider(Provider):
             raise ProviderError(redact(f"{self.name}: {type(e).__name__}: {e}")) from None
         if r.status_code >= 400:
             raise ProviderError(redact(f"{self.name}: HTTP {r.status_code}: {r.text[:300]}"))
-        data = r.json()
+        try:
+            data = r.json()
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):  # an empty or "null" body with a 200 status (seen from overloaded gateways)
+            raise ProviderError(redact(f"{self.name}: unreadable response (HTTP {r.status_code}): {r.text[:200]!r}"))
         choice = (data.get("choices") or [{}])[0]
         usage = data.get("usage") or {}
         return ProviderResponse(
