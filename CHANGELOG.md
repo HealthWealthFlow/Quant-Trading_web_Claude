@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fix: an empty or "null" 200 response from the AI provider (seen with DeepSeek HTTP 500 bursts) crashed the harvest with an AttributeError; it is now a normal "AI error, skipped".
 - Quiet the harmless pdfminer "FontBBox" font warnings that flooded the console while reading PDFs.
 - Fix: a malformed JSON reply in the stage C relation check no longer aborts a campaign; stray backslashes in model JSON are tolerated.
 
